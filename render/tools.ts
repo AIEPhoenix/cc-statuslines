@@ -1,5 +1,5 @@
 import type { RenderContext } from '../types.ts';
-import { yellow, green, cyan, label } from './colors.ts';
+import { yellow, green, cyan, label, dim } from './colors.ts';
 
 export function renderToolsLine(ctx: RenderContext): string | null {
   const { tools } = ctx.transcript;
@@ -21,7 +21,7 @@ export function renderToolsLine(ctx: RenderContext): string | null {
     parts.push(`${green('✓')} ${name} ${label(`×${count}`, colors)}`);
   }
 
-  return parts.length === 0 ? null : parts.join(' | ');
+  return parts.length === 0 ? null : parts.join(dim('  '));
 }
 
 function truncPath(p: string, max = 20): string {

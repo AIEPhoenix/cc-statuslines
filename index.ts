@@ -31,7 +31,7 @@ async function main(): Promise<void> {
     }
 
     const sessionDuration = formatSessionDuration(transcript.sessionStart);
-    const claudeCodeVersion = config.display.showClaudeCodeVersion
+    const claudeCodeVersion = (config.display.showClaudeCodeVersion || config.display.showTokens)
       ? await getClaudeCodeVersion()
       : undefined;
 
