@@ -31,7 +31,9 @@ async function main(): Promise<void> {
     }
 
     const sessionDuration = formatSessionDuration(transcript.sessionStart);
-    const claudeCodeVersion = await getClaudeCodeVersion();
+    const claudeCodeVersion = config.display.showClaudeCodeVersion
+      ? await getClaudeCodeVersion()
+      : undefined;
 
     const ctx: RenderContext = {
       stdin,
@@ -44,6 +46,7 @@ async function main(): Promise<void> {
       gitStatus,
       usageData,
       config,
+      extraLabel: null,
       claudeCodeVersion,
     };
 

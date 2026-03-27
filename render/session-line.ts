@@ -1,84 +1,101 @@
 import type { RenderContext } from '../types.ts';
 import { isLimitReached } from '../types.ts';
 import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getTotalTokens } from '../stdin.ts';
-
-import { coloredBar, critical, git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, dim, getContextColor, getQuotaColor, quotaBar, RESET } from './colors.ts';
+import { getOutputSpeed } from '../speed-tracker.ts';
+import { coloredBar, critical, git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, getContextColor, getQuotaColor, quotaBar, custom as customColor, RESET } from './colors.ts';
+import { getAdaptiveBarWidth } from '../utils/terminal.ts';
 
 const COST_COLOR = '\x1b[38;5;220m';
 function cost(text: string): string { return `${COST_COLOR}${text}${RESET}`; }
-import { getAdaptiveBarWidth } from '../utils/terminal.ts';
 
 export function renderSessionLine(ctx: RenderContext): string {
+  const model = getModelName(ctx.stdin);
   const rawPercent = getContextPercent(ctx.stdin);
   const bufferedPercent = getBufferedPercent(ctx.stdin);
   const autocompactMode = ctx.config?.display?.autocompactBuffer ?? 'enabled';
   const percent = autocompactMode === 'disabled' ? rawPercent : bufferedPercent;
+
   const colors = ctx.config?.colors;
   const barWidth = getAdaptiveBarWidth();
   const bar = coloredBar(percent, barWidth, colors);
+
   const parts: string[] = [];
   const display = ctx.config?.display;
-  const mode = display?.contextValue ?? 'percent';
-  const contextValue = fmtCtxVal(ctx, percent, mode);
-  const cvDisplay = `${getContextColor(percent, colors)}${contextValue}${RESET}`;
+  const contextValueMode = display?.contextValue ?? 'percent';
+  const contextValue = formatContextValue(ctx, percent, contextValueMode);
+  const contextValueDisplay = `${getContextColor(percent, colors)}${contextValue}${RESET}`;
 
-  if (ctx.claudeCodeVersion) {
-    parts.push(label(`v${ctx.claudeCodeVersion}`, colors));
-  }
-
+  // Model and context bar (FIRST)
   const providerLabel = getProviderLabel(ctx.stdin);
   const showUsage = display?.showUsage !== false;
   const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
-  const qualifier = providerLabel ?? (showUsage && hasApiKey ? red('API') : undefined);
-  const m = getModelName(ctx.stdin);
-  const modelDisplay = qualifier ? `${m} | ${qualifier}` : m;
+  const modelQualifier = providerLabel ?? (showUsage && hasApiKey ? red('API') : undefined);
+  const modelDisplay = modelQualifier ? `${model} | ${modelQualifier}` : model;
 
-  if (display?.showModel !== false && display?.showContextBar !== false)
-    parts.push(`${modelColor(modelDisplay, colors)} ${bar} ${cvDisplay}`);
-  else if (display?.showModel !== false) parts.push(`${modelColor(modelDisplay, colors)} ${cvDisplay}`);
-  else if (display?.showContextBar !== false) parts.push(`${bar} ${cvDisplay}`);
-  else parts.push(cvDisplay);
+  if (display?.showModel !== false && display?.showContextBar !== false) {
+    parts.push(`${modelColor(`[${modelDisplay}]`, colors)} ${bar} ${contextValueDisplay}`);
+  } else if (display?.showModel !== false) {
+    parts.push(`${modelColor(`[${modelDisplay}]`, colors)} ${contextValueDisplay}`);
+  } else if (display?.showContextBar !== false) {
+    parts.push(`${bar} ${contextValueDisplay}`);
+  } else {
+    parts.push(contextValueDisplay);
+  }
 
-  // Project + git
+  // Project path + git status
   let projectPart: string | null = null;
   if (display?.showProject !== false && ctx.stdin.cwd) {
-    const segs = ctx.stdin.cwd.split(/[/\\]/).filter(Boolean);
-    const levels = ctx.config?.pathLevels ?? 1;
-    projectPart = projectColor(segs.length > 0 ? segs.slice(-levels).join('/') : '/', colors);
+    const segments = ctx.stdin.cwd.split(/[/\\]/).filter(Boolean);
+    const pathLevels = ctx.config?.pathLevels ?? 1;
+    const projectPath = segments.length > 0 ? segments.slice(-pathLevels).join('/') : '/';
+    projectPart = projectColor(projectPath, colors);
   }
 
   let gitPart = '';
-  const gc = ctx.config?.gitStatus;
-  if ((gc?.enabled ?? true) && ctx.gitStatus) {
-    const gp: string[] = [ctx.gitStatus.branch];
-    if ((gc?.showDirty ?? true) && ctx.gitStatus.isDirty) gp.push('*');
-    if (gc?.showAheadBehind) {
-      if (ctx.gitStatus.ahead > 0) gp.push(` ↑${ctx.gitStatus.ahead}`);
-      if (ctx.gitStatus.behind > 0) gp.push(` ↓${ctx.gitStatus.behind}`);
+  const gitConfig = ctx.config?.gitStatus;
+  const showGit = gitConfig?.enabled ?? true;
+
+  if (showGit && ctx.gitStatus) {
+    const gitParts: string[] = [ctx.gitStatus.branch];
+    if ((gitConfig?.showDirty ?? true) && ctx.gitStatus.isDirty) gitParts.push('*');
+    if (gitConfig?.showAheadBehind) {
+      if (ctx.gitStatus.ahead > 0) gitParts.push(` ↑${ctx.gitStatus.ahead}`);
+      if (ctx.gitStatus.behind > 0) gitParts.push(` ↓${ctx.gitStatus.behind}`);
     }
-    if (gc?.showFileStats && ctx.gitStatus.fileStats) {
+    if (gitConfig?.showFileStats && ctx.gitStatus.fileStats) {
       const { modified, added, deleted, untracked } = ctx.gitStatus.fileStats;
-      const sp: string[] = [];
-      if (modified > 0) sp.push(`!${modified}`);
-      if (added > 0) sp.push(`+${added}`);
-      if (deleted > 0) sp.push(`✘${deleted}`);
-      if (untracked > 0) sp.push(`?${untracked}`);
-      if (sp.length > 0) gp.push(` ${sp.join(' ')}`);
+      const statParts: string[] = [];
+      if (modified > 0) statParts.push(`!${modified}`);
+      if (added > 0) statParts.push(`+${added}`);
+      if (deleted > 0) statParts.push(`✘${deleted}`);
+      if (untracked > 0) statParts.push(`?${untracked}`);
+      if (statParts.length > 0) gitParts.push(` ${statParts.join(' ')}`);
     }
-    gitPart = `${gitColor('git:(', colors)}${gitBranchColor(gp.join(''), colors)}${gitColor(')', colors)}`;
+    gitPart = `${gitColor('git:(', colors)}${gitBranchColor(gitParts.join(''), colors)}${gitColor(')', colors)}`;
   }
 
-  if (projectPart && gitPart) parts.push(`${projectPart} ${gitPart}`);
-  else if (projectPart) parts.push(projectPart);
-  else if (gitPart) parts.push(gitPart);
+  if (projectPart && gitPart) {
+    parts.push(`${projectPart} ${gitPart}`);
+  } else if (projectPart) {
+    parts.push(projectPart);
+  } else if (gitPart) {
+    parts.push(gitPart);
+  }
 
-  if (display?.showSessionName && ctx.transcript.sessionName) parts.push(label(ctx.transcript.sessionName, colors));
+  // Session name
+  if (display?.showSessionName && ctx.transcript.sessionName) {
+    parts.push(label(ctx.transcript.sessionName, colors));
+  }
+
+  if (display?.showClaudeCodeVersion && ctx.claudeCodeVersion) {
+    parts.push(label(`CC v${ctx.claudeCodeVersion}`, colors));
+  }
 
   // Config counts
   if (display?.showConfigCounts !== false) {
-    const total = ctx.claudeMdCount + ctx.rulesCount + ctx.mcpCount + ctx.hooksCount;
+    const totalCounts = ctx.claudeMdCount + ctx.rulesCount + ctx.mcpCount + ctx.hooksCount;
     const envThreshold = display?.environmentThreshold ?? 0;
-    if (total > 0 && total >= envThreshold) {
+    if (totalCounts > 0 && totalCounts >= envThreshold) {
       if (ctx.claudeMdCount > 0) parts.push(label(`${ctx.claudeMdCount} CLAUDE.md`, colors));
       if (ctx.rulesCount > 0) parts.push(label(`${ctx.rulesCount} rules`, colors));
       if (ctx.mcpCount > 0) parts.push(label(`${ctx.mcpCount} MCPs`, colors));
@@ -86,83 +103,123 @@ export function renderSessionLine(ctx: RenderContext): string {
     }
   }
 
-  // Usage
+  // Usage limits
   if (display?.showUsage !== false && ctx.usageData && !providerLabel) {
     if (isLimitReached(ctx.usageData)) {
-      const rt = ctx.usageData.fiveHour === 100 ? fmtReset(ctx.usageData.fiveHourResetAt) : fmtReset(ctx.usageData.sevenDayResetAt);
-      parts.push(critical(`⚠ Limit reached${rt ? ` (resets ${rt})` : ''}`, colors));
+      const resetTime = ctx.usageData.fiveHour === 100
+        ? formatResetTime(ctx.usageData.fiveHourResetAt)
+        : formatResetTime(ctx.usageData.sevenDayResetAt);
+      parts.push(critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors));
     } else {
       const usageThreshold = display?.usageThreshold ?? 0;
-      const { fiveHour, sevenDay } = ctx.usageData;
-      if (Math.max(fiveHour ?? 0, sevenDay ?? 0) >= usageThreshold) {
-        const ube = display?.usageBarEnabled ?? true;
+      const fiveHour = ctx.usageData.fiveHour;
+      const sevenDay = ctx.usageData.sevenDay;
+      const effectiveUsage = Math.max(fiveHour ?? 0, sevenDay ?? 0);
+      if (effectiveUsage >= usageThreshold) {
+        const usageBarEnabled = display?.usageBarEnabled ?? true;
         if (fiveHour === null && sevenDay !== null) {
-          parts.push(fmtWindow({ l: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, ube, barWidth, forceLabel: true }));
+          parts.push(formatUsageWindowPart({ label: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth, forceLabel: true }));
         } else {
-          const fhp = fmtWindow({ l: '5h', percent: fiveHour, resetAt: ctx.usageData.fiveHourResetAt, colors, ube, barWidth });
-          const sdThreshold = display?.sevenDayThreshold ?? 80;
-          if (sevenDay !== null && sevenDay >= sdThreshold) {
-            const sdp = fmtWindow({ l: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, ube, barWidth });
-            parts.push(`${fhp} | ${sdp}`);
-          } else parts.push(fhp);
+          const fiveHourPart = formatUsageWindowPart({ label: '5h', percent: fiveHour, resetAt: ctx.usageData.fiveHourResetAt, colors, usageBarEnabled, barWidth });
+          const sevenDayThreshold = display?.sevenDayThreshold ?? 80;
+          if (sevenDay !== null && sevenDay >= sevenDayThreshold) {
+            const sevenDayPart = formatUsageWindowPart({ label: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth });
+            parts.push(`${fiveHourPart} | ${sevenDayPart}`);
+          } else {
+            parts.push(fiveHourPart);
+          }
         }
       }
     }
   }
 
+  // Speed
+  if (display?.showSpeed) {
+    const speed = getOutputSpeed(ctx.stdin);
+    if (speed !== null) {
+      parts.push(label(`out: ${speed.toFixed(1)} tok/s`, colors));
+    }
+  }
+
+  // Duration
+  if (display?.showDuration !== false && ctx.sessionDuration) {
+    parts.push(label(`⏱️  ${ctx.sessionDuration}`, colors));
+  }
+
+  if (ctx.extraLabel) {
+    parts.push(label(ctx.extraLabel, colors));
+  }
+
+  // Custom line
+  const customLine = display?.customLine;
+  if (customLine) {
+    parts.push(customColor(customLine, colors));
+  }
+
+  // Our addition: cost
   const costVal = ctx.stdin.cost?.total_cost_usd;
-  if (display?.showDuration !== false && ctx.sessionDuration && typeof costVal === 'number') {
-    parts.push(`${label(`${ctx.sessionDuration}`, colors)} ${cost(`$${costVal.toFixed(2)}`)}`);
-  } else if (display?.showDuration !== false && ctx.sessionDuration) {
-    parts.push(label(`${ctx.sessionDuration}`, colors));
-  } else if (typeof costVal === 'number') {
+  if (typeof costVal === 'number') {
     parts.push(cost(`$${costVal.toFixed(2)}`));
   }
 
   let line = parts.join(' | ');
+
+  // Token breakdown at high context
   if (display?.showTokenBreakdown !== false && percent >= 85) {
     const usage = ctx.stdin.context_window?.current_usage;
     if (usage) {
-      const input = fmtTokens(usage.input_tokens ?? 0);
-      const cache = fmtTokens((usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0));
+      const input = formatTokens(usage.input_tokens ?? 0);
+      const cache = formatTokens((usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0));
       line += label(` (in: ${input}, cache: ${cache})`, colors);
     }
   }
+
   return line;
 }
 
-function fmtTokens(n: number): string { return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : n.toString(); }
+function formatTokens(n: number): string {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(0)}k`;
+  return n.toString();
+}
 
-function fmtCtxVal(ctx: RenderContext, percent: number, mode: 'percent' | 'tokens' | 'remaining' | 'both'): string {
-  const total = getTotalTokens(ctx.stdin);
+function formatContextValue(ctx: RenderContext, percent: number, mode: 'percent' | 'tokens' | 'remaining' | 'both'): string {
+  const totalTokens = getTotalTokens(ctx.stdin);
   const size = ctx.stdin.context_window?.context_window_size ?? 0;
-  if (mode === 'tokens') return size > 0 ? `${fmtTokens(total)}/${fmtTokens(size)}` : fmtTokens(total);
-  if (mode === 'both') return size > 0 ? `${percent}% (${fmtTokens(total)}/${fmtTokens(size)})` : `${percent}%`;
+  if (mode === 'tokens') return size > 0 ? `${formatTokens(totalTokens)}/${formatTokens(size)}` : formatTokens(totalTokens);
+  if (mode === 'both') return size > 0 ? `${percent}% (${formatTokens(totalTokens)}/${formatTokens(size)})` : `${percent}%`;
   if (mode === 'remaining') return `${Math.max(0, 100 - percent)}%`;
   return `${percent}%`;
 }
 
-function fmtPercent(p: number | null, colors?: RenderContext['config']['colors']): string {
-  return p === null ? label('--', colors) : `${getQuotaColor(p, colors)}${p}%${RESET}`;
+function formatUsagePercent(percent: number | null, colors?: RenderContext['config']['colors']): string {
+  if (percent === null) return label('--', colors);
+  const color = getQuotaColor(percent, colors);
+  return `${color}${percent}%${RESET}`;
 }
 
-function fmtWindow({ l, percent, resetAt, colors, ube, barWidth, forceLabel = false }: { l: string; percent: number | null; resetAt: Date | null; colors?: RenderContext['config']['colors']; ube: boolean; barWidth: number; forceLabel?: boolean }): string {
-  const ud = fmtPercent(percent, colors);
-  const reset = fmtReset(resetAt);
-  if (ube) {
-    const body = reset ? `${quotaBar(percent ?? 0, barWidth, colors)} ${ud} (${reset} / ${l})` : `${quotaBar(percent ?? 0, barWidth, colors)} ${ud}`;
+function formatUsageWindowPart({ label: l, percent, resetAt, colors, usageBarEnabled, barWidth, forceLabel = false }: {
+  label: '5h' | '7d'; percent: number | null; resetAt: Date | null;
+  colors?: RenderContext['config']['colors']; usageBarEnabled: boolean; barWidth: number; forceLabel?: boolean;
+}): string {
+  const usageDisplay = formatUsagePercent(percent, colors);
+  const reset = formatResetTime(resetAt);
+  if (usageBarEnabled) {
+    const body = reset ? `${quotaBar(percent ?? 0, barWidth, colors)} ${usageDisplay} (${reset} / ${l})` : `${quotaBar(percent ?? 0, barWidth, colors)} ${usageDisplay}`;
     return forceLabel ? `${l}: ${body}` : body;
   }
-  return reset ? `${l}: ${ud} (${reset})` : `${l}: ${ud}`;
+  return reset ? `${l}: ${usageDisplay} (${reset})` : `${l}: ${usageDisplay}`;
 }
 
-function fmtReset(d: Date | null): string {
-  if (!d) return '';
-  const ms = d.getTime() - Date.now();
-  if (ms <= 0) return '';
-  const mins = Math.ceil(ms / 60000);
-  if (mins < 60) return `${mins}m`;
-  const h = Math.floor(mins / 60), m = mins % 60;
-  if (h >= 24) { const dd = Math.floor(h / 24), rh = h % 24; return rh > 0 ? `${dd}d ${rh}h` : `${dd}d`; }
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+function formatResetTime(resetAt: Date | null): string {
+  if (!resetAt) return '';
+  const now = new Date();
+  const diffMs = resetAt.getTime() - now.getTime();
+  if (diffMs <= 0) return '';
+  const diffMins = Math.ceil(diffMs / 60000);
+  if (diffMins < 60) return `${diffMins}m`;
+  const hours = Math.floor(diffMins / 60);
+  const mins = diffMins % 60;
+  if (hours >= 24) { const days = Math.floor(hours / 24); const remHours = hours % 24; return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`; }
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }

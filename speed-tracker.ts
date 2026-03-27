@@ -41,13 +41,20 @@ export interface TokenSpeeds {
   outputSpeed: number | null;
 }
 
-export function getTokenSpeeds(stdin: StdinData): TokenSpeeds {
+// Cached result per invocation to avoid double read/write
+let cachedResult: TokenSpeeds | null = null;
+let cachedForTimestamp = 0;
+
+function computeSpeeds(stdin: StdinData): TokenSpeeds {
+  const now = Date.now();
+  // Return cached result if called multiple times in the same ms
+  if (cachedResult && now === cachedForTimestamp) return cachedResult;
+
   const inputTokens = stdin.context_window?.total_input_tokens;
   const outputTokens = stdin.context_window?.current_usage?.output_tokens;
   const inVal = typeof inputTokens === 'number' && Number.isFinite(inputTokens) ? inputTokens : 0;
   const outVal = typeof outputTokens === 'number' && Number.isFinite(outputTokens) ? outputTokens : 0;
 
-  const now = Date.now();
   const prev = readCache();
 
   let inputSpeed: number | null = null;
@@ -55,14 +62,22 @@ export function getTokenSpeeds(stdin: StdinData): TokenSpeeds {
 
   if (prev) {
     const dms = now - prev.timestamp;
-    if (inVal >= prev.inputTokens) inputSpeed = calcSpeed(inVal, prev.inputTokens, dms);
+    if (inVal >= (prev.inputTokens ?? 0)) inputSpeed = calcSpeed(inVal, prev.inputTokens ?? 0, dms);
     if (outVal >= prev.outputTokens) outputSpeed = calcSpeed(outVal, prev.outputTokens, dms);
   }
 
   writeCache({ inputTokens: inVal, outputTokens: outVal, timestamp: now });
-  return { inputSpeed, outputSpeed };
+  cachedResult = { inputSpeed, outputSpeed };
+  cachedForTimestamp = now;
+  return cachedResult;
 }
 
+/** Original claude-hud compatible: output speed only */
 export function getOutputSpeed(stdin: StdinData): number | null {
-  return getTokenSpeeds(stdin).outputSpeed;
+  return computeSpeeds(stdin).outputSpeed;
+}
+
+/** Extended: both input and output speeds for token stats line */
+export function getTokenSpeeds(stdin: StdinData): TokenSpeeds {
+  return computeSpeeds(stdin);
 }

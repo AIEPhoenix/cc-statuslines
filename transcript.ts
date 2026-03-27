@@ -122,7 +122,7 @@ function processEntry(entry: TranscriptLine, toolMap: Map<string, ToolEntry>, ag
   for (const block of content) {
     if (block.type === 'tool_use' && block.id && block.name) {
       const toolEntry: ToolEntry = { id: block.id, name: block.name, target: extractTarget(block.name, block.input), status: 'running', startTime: timestamp };
-      if (block.name === 'Agent' || block.name === 'Task') {
+      if (block.name === 'Task') {
         const input = block.input as Record<string, unknown>;
         agentMap.set(block.id, { id: block.id, type: (input?.subagent_type as string) ?? 'unknown', model: input?.model as string, description: input?.description as string, status: 'running', startTime: timestamp });
       } else if (block.name === 'TodoWrite') {
