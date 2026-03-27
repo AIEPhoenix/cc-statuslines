@@ -5,8 +5,8 @@ export function renderAgentsLine(ctx: RenderContext): string | null {
   const { agents } = ctx.transcript;
   const colors = ctx.config?.colors;
   const running = agents.filter(a => a.status === 'running');
-  const recent = agents.filter(a => a.status === 'completed').slice(-2);
-  const toShow = [...running, ...recent].slice(-3);
+  const recent = agents.filter(a => a.status === 'completed').reverse().slice(0, 2);
+  const toShow = [...running, ...recent].slice(0, 3);
   if (toShow.length === 0) return null;
   return toShow.map(a => fmtAgent(a, colors)).join('\n');
 }

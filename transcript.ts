@@ -12,6 +12,21 @@ interface TranscriptLine {
   slug?: string;
   customTitle?: string;
   message?: { content?: ContentBlock[] };
+  // queue-operation fields (for async agent completion)
+  operation?: string;
+  content?: string;
+  // toolUseResult on tool_result entries
+  toolUseResult?: ToolUseResult;
+}
+
+interface ToolUseResult {
+  isAsync?: boolean;
+  status?: string;
+  agentId?: string;
+  agentType?: string;
+  description?: string;
+  totalDurationMs?: number;
+  outputFile?: string;
 }
 
 interface ContentBlock {
@@ -81,10 +96,12 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   const state = readFileState(transcriptPath);
   if (!state) return result;
   const cached = readCache(transcriptPath, state);
-  if (cached) return cached;
+  if (cached && !cached.agents.some(a => a.status === 'running')) return cached;
 
   const toolMap = new Map<string, ToolEntry>();
   const agentMap = new Map<string, AgentEntry>();
+  // Maps agentId (from toolUseResult) back to tool_use_id for async agents
+  const asyncAgentIdToToolId = new Map<string, string>();
   let latestTodos: TodoItem[] = [];
   const taskIdToIndex = new Map<string, number>();
   let latestSlug: string | undefined;
@@ -99,7 +116,7 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
         const entry = JSON.parse(line) as TranscriptLine;
         if (entry.type === 'custom-title' && typeof entry.customTitle === 'string') customTitle = entry.customTitle;
         else if (typeof entry.slug === 'string') latestSlug = entry.slug;
-        processEntry(entry, toolMap, agentMap, taskIdToIndex, latestTodos, result);
+        processEntry(entry, toolMap, agentMap, asyncAgentIdToToolId, taskIdToIndex, latestTodos, result);
       } catch {}
     }
     parsedCleanly = true;
@@ -109,22 +126,61 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   result.agents = Array.from(agentMap.values()).slice(-10);
   result.todos = latestTodos;
   result.sessionName = customTitle ?? latestSlug;
-  if (parsedCleanly) writeCache(transcriptPath, state, result);
+
+  // Enrich unknown agent types from subagent meta.json files
+  enrichAgentTypes(transcriptPath, result.agents, asyncAgentIdToToolId);
+
+  const hasRunning = result.agents.some(a => a.status === 'running');
+  if (parsedCleanly && !hasRunning) writeCache(transcriptPath, state, result);
   return result;
 }
 
-function processEntry(entry: TranscriptLine, toolMap: Map<string, ToolEntry>, agentMap: Map<string, AgentEntry>, taskIdToIndex: Map<string, number>, latestTodos: TodoItem[], result: TranscriptData): void {
+function processEntry(
+  entry: TranscriptLine,
+  toolMap: Map<string, ToolEntry>,
+  agentMap: Map<string, AgentEntry>,
+  asyncAgentIdToToolId: Map<string, string>,
+  taskIdToIndex: Map<string, number>,
+  latestTodos: TodoItem[],
+  result: TranscriptData,
+): void {
   const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();
   if (!result.sessionStart && entry.timestamp) result.sessionStart = timestamp;
+
+  // Handle queue-operation: async agent completion notification
+  if (entry.type === 'queue-operation' && entry.operation === 'enqueue' && typeof entry.content === 'string') {
+    const taskIdMatch = entry.content.match(/<task-id>([^<]+)<\/task-id>/);
+    const statusMatch = entry.content.match(/<status>([^<]+)<\/status>/);
+    if (taskIdMatch && statusMatch?.[1] === 'completed') {
+      const agentId = taskIdMatch[1];
+      const toolId = asyncAgentIdToToolId.get(agentId);
+      if (toolId) {
+        const agent = agentMap.get(toolId);
+        if (agent) {
+          agent.status = 'completed';
+          agent.endTime = timestamp;
+        }
+      }
+    }
+    return;
+  }
+
   const content = entry.message?.content;
   if (!content || !Array.isArray(content)) return;
 
   for (const block of content) {
     if (block.type === 'tool_use' && block.id && block.name) {
       const toolEntry: ToolEntry = { id: block.id, name: block.name, target: extractTarget(block.name, block.input), status: 'running', startTime: timestamp };
-      if (block.name === 'Task') {
+      if (block.name === 'Agent' || block.name === 'Task') {
         const input = block.input as Record<string, unknown>;
-        agentMap.set(block.id, { id: block.id, type: (input?.subagent_type as string) ?? 'unknown', model: input?.model as string, description: input?.description as string, status: 'running', startTime: timestamp });
+        agentMap.set(block.id, {
+          id: block.id,
+          type: (input?.subagent_type as string) ?? 'unknown',
+          model: input?.model as string,
+          description: input?.description as string,
+          status: 'running',
+          startTime: timestamp,
+        });
       } else if (block.name === 'TodoWrite') {
         const input = block.input as { todos?: TodoItem[] };
         if (input?.todos && Array.isArray(input.todos)) { latestTodos.length = 0; taskIdToIndex.clear(); latestTodos.push(...input.todos); }
@@ -147,11 +203,35 @@ function processEntry(entry: TranscriptLine, toolMap: Map<string, ToolEntry>, ag
         toolMap.set(block.id, toolEntry);
       }
     }
+
     if (block.type === 'tool_result' && block.tool_use_id) {
+      const tur = entry.toolUseResult;
+
+      // Handle agent tool_results
+      const agent = agentMap.get(block.tool_use_id);
+      if (agent && tur) {
+        if (tur.isAsync === true) {
+          // Background agent: tool_result is just the launch notification.
+          // Keep status as 'running'. Completion comes via queue-operation.
+          if (tur.agentId) asyncAgentIdToToolId.set(tur.agentId, block.tool_use_id);
+          // Don't change status — stays 'running'
+        } else if (tur.status === 'completed') {
+          // Foreground agent: tool_result means truly completed.
+          agent.status = 'completed';
+          agent.endTime = timestamp;
+          // Use accurate duration from toolUseResult if available
+          if (typeof tur.totalDurationMs === 'number') {
+            agent.endTime = new Date(agent.startTime.getTime() + tur.totalDurationMs);
+          }
+          // Update type from toolUseResult (more accurate than input.subagent_type)
+          if (tur.agentType) agent.type = tur.agentType;
+        }
+        continue;
+      }
+
+      // Handle regular tool_results
       const tool = toolMap.get(block.tool_use_id);
       if (tool) { tool.status = block.is_error ? 'error' : 'completed'; tool.endTime = timestamp; }
-      const agent = agentMap.get(block.tool_use_id);
-      if (agent) { agent.status = 'completed'; agent.endTime = timestamp; }
     }
   }
 }
@@ -174,6 +254,41 @@ function resolveIdx(taskId: unknown, map: Map<string, number>, todos: TodoItem[]
     if (/^\d+$/.test(key)) { const i = Number.parseInt(key, 10) - 1; if (i >= 0 && i < todos.length) return i; }
   }
   return null;
+}
+
+/**
+ * For agents with type 'unknown' (typically background agents where input.subagent_type
+ * was not set), read the agentType from subagents/agent-{id}.meta.json.
+ */
+function enrichAgentTypes(
+  transcriptPath: string,
+  agents: AgentEntry[],
+  asyncAgentIdToToolId: Map<string, string>,
+): void {
+  const needsEnrichment = agents.some(a => a.type === 'unknown');
+  if (!needsEnrichment) return;
+
+  const transcriptDir = path.dirname(transcriptPath);
+  const transcriptStem = path.basename(transcriptPath, '.jsonl');
+  const subagentsDir = path.join(transcriptDir, transcriptStem, 'subagents');
+  if (!fs.existsSync(subagentsDir)) return;
+
+  // Build reverse map: tool_use_id → agentId (file-system id)
+  const toolIdToAgentId = new Map<string, string>();
+  for (const [agentId, toolId] of asyncAgentIdToToolId) {
+    toolIdToAgentId.set(toolId, agentId);
+  }
+
+  for (const agent of agents) {
+    if (agent.type !== 'unknown') continue;
+    const fileAgentId = toolIdToAgentId.get(agent.id);
+    if (!fileAgentId) continue;
+    try {
+      const metaPath = path.join(subagentsDir, `agent-${fileAgentId}.meta.json`);
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      if (meta.agentType) agent.type = meta.agentType;
+    } catch {}
+  }
 }
 
 function normalizeStatus(s: unknown): TodoItem['status'] | null {
