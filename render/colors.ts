@@ -12,6 +12,7 @@ const BRIGHT_MAGENTA = '\x1b[95m';
 const BRIGHT_CYAN = '\x1b[96m';
 const BRIGHT_GREEN = '\x1b[92m';
 const WHITE = '\x1b[37m';
+const CLAUDE_ORANGE = '\x1b[38;5;208m';
 
 const ANSI_BY_NAME: Record<HudColorName, string> = { dim: DIM, red: RED, green: GREEN, yellow: YELLOW, magenta: MAGENTA, cyan: CYAN, brightBlue: BRIGHT_BLUE, brightMagenta: BRIGHT_MAGENTA };
 
@@ -46,6 +47,7 @@ export function project(text: string, colors?: Partial<HudColorOverrides>): stri
 export function git(text: string, colors?: Partial<HudColorOverrides>): string { return withOverride(text, colors?.git, MAGENTA); }
 export function gitBranch(text: string, colors?: Partial<HudColorOverrides>): string { return withOverride(text, colors?.gitBranch, CYAN); }
 export function label(text: string, colors?: Partial<HudColorOverrides>): string { return withOverride(text, colors?.label, DIM); }
+export function custom(text: string, colors?: Partial<HudColorOverrides>): string { return withOverride(text, colors?.custom, CLAUDE_ORANGE); }
 
 export function warning(text: string, colors?: Partial<HudColorOverrides>): string { return colorize(text, resolveAnsi(colors?.warning, YELLOW)); }
 export function critical(text: string, colors?: Partial<HudColorOverrides>): string { return colorize(text, resolveAnsi(colors?.critical, RED)); }

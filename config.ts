@@ -20,6 +20,7 @@ export interface HudColorOverrides {
   git: HudColorValue;
   gitBranch: HudColorValue;
   label: HudColorValue;
+  custom: HudColorValue;
 }
 
 export const DEFAULT_ELEMENT_ORDER: HudElement[] = [
@@ -54,7 +55,9 @@ export interface HudConfig {
     showAgents: boolean;
     showTodos: boolean;
     showSessionName: boolean;
+    showClaudeCodeVersion: boolean;
     showTokens: boolean;
+    customLine: string;
     autocompactBuffer: AutocompactBufferMode;
     usageThreshold: number;
     sevenDayThreshold: number;
@@ -84,7 +87,9 @@ export const DEFAULT_CONFIG: HudConfig = {
     showAgents: false,
     showTodos: false,
     showSessionName: false,
+    showClaudeCodeVersion: false,
     showTokens: false,
+    customLine: '',
     autocompactBuffer: 'enabled',
     usageThreshold: 0,
     sevenDayThreshold: 80,
@@ -101,6 +106,7 @@ export const DEFAULT_CONFIG: HudConfig = {
     git: 'magenta',
     gitBranch: 'cyan',
     label: 'dim',
+    custom: 208,
   },
 };
 
@@ -202,7 +208,9 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
       showAgents: bool(c.display?.showAgents, DEFAULT_CONFIG.display.showAgents),
       showTodos: bool(c.display?.showTodos, DEFAULT_CONFIG.display.showTodos),
       showSessionName: bool(c.display?.showSessionName, DEFAULT_CONFIG.display.showSessionName),
+      showClaudeCodeVersion: bool(c.display?.showClaudeCodeVersion, DEFAULT_CONFIG.display.showClaudeCodeVersion),
       showTokens: bool(c.display?.showTokens, DEFAULT_CONFIG.display.showTokens),
+      customLine: typeof c.display?.customLine === 'string' ? c.display.customLine.slice(0, 80) : DEFAULT_CONFIG.display.customLine,
       autocompactBuffer: validateAutocompact(c.display?.autocompactBuffer) ? c.display!.autocompactBuffer : DEFAULT_CONFIG.display.autocompactBuffer,
       usageThreshold: typeof c.display?.usageThreshold === 'number' ? threshold(c.display.usageThreshold) : DEFAULT_CONFIG.display.usageThreshold,
       sevenDayThreshold: typeof c.display?.sevenDayThreshold === 'number' ? threshold(c.display.sevenDayThreshold) : DEFAULT_CONFIG.display.sevenDayThreshold,
@@ -219,6 +227,7 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
       git: validateColor(c.colors?.git) ? c.colors!.git : DEFAULT_CONFIG.colors.git,
       gitBranch: validateColor(c.colors?.gitBranch) ? c.colors!.gitBranch : DEFAULT_CONFIG.colors.gitBranch,
       label: validateColor(c.colors?.label) ? c.colors!.label : DEFAULT_CONFIG.colors.label,
+      custom: validateColor(c.colors?.custom) ? c.colors!.custom : DEFAULT_CONFIG.colors.custom,
     },
   };
 }

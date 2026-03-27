@@ -15,5 +15,5 @@ export function renderEnvironmentLine(ctx: RenderContext): string | null {
   if (ctx.mcpCount > 0) parts.push(`${ctx.mcpCount} MCPs`);
   if (ctx.hooksCount > 0) parts.push(`${ctx.hooksCount} hooks`);
 
-  return parts.length === 0 ? null : label(parts.join(' │ '), ctx.config?.colors);
+  return parts.length === 0 ? null : label(parts.join(' | '), ctx.config?.colors);
 }
