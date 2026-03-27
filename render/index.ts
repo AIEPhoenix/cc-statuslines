@@ -174,7 +174,7 @@ function renderExpanded(ctx: RenderContext): Array<{ line: string; isActivity: b
     if ((el === 'context' && next === 'usage' && !seen.has('usage')) || (el === 'usage' && next === 'context' && !seen.has('context'))) {
       seen.add(el); seen.add(next);
       const a = renderElementLine(ctx, el), b = renderElementLine(ctx, next);
-      if (a && b) lines.push({ line: `${a} │ ${b}`, isActivity: false });
+      if (a && b) lines.push({ line: `${a}  ${dim('│')}  ${b}`, isActivity: false });
       else if (a) lines.push({ line: a, isActivity: false });
       else if (b) lines.push({ line: b, isActivity: false });
       continue;

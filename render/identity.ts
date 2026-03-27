@@ -31,7 +31,7 @@ export function renderIdentityLine(ctx: RenderContext): string {
 
 function fmtTokens(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(0)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return n.toString();
 }
 

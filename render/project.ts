@@ -1,11 +1,11 @@
 import type { RenderContext } from '../types.ts';
 import { getModelName, getProviderLabel } from '../stdin.ts';
 import { getOutputSpeed } from '../speed-tracker.ts';
-import { git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, custom as customColor } from './colors.ts';
+import { git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, custom as customColor, dim, RESET } from './colors.ts';
 
-const COST_COLOR = '\x1b[38;5;220m';
-const COST_RESET = '\x1b[0m';
-function cost(text: string): string { return `${COST_COLOR}${text}${COST_RESET}`; }
+const COST_COLOR = '\x1b[38;5;178m'; // muted gold
+function cost(text: string): string { return `${COST_COLOR}${text}${RESET}`; }
+function sep(): string { return dim(' · '); }
 
 export function renderProjectLine(ctx: RenderContext): string | null {
   const display = ctx.config?.display;
@@ -86,8 +86,16 @@ export function renderProjectLine(ctx: RenderContext): string | null {
     }
   }
 
-  if (display?.showDuration !== false && ctx.sessionDuration) {
-    parts.push(label(`⏱️  ${ctx.sessionDuration}`, colors));
+  // Duration and cost grouped together (no separator between them)
+  const costVal = ctx.stdin.cost?.total_cost_usd;
+  const durationStr = (display?.showDuration !== false && ctx.sessionDuration) ? ctx.sessionDuration : '';
+  const costStr = typeof costVal === 'number' ? `$${costVal.toFixed(2)}` : '';
+  if (durationStr && costStr) {
+    parts.push(`${dim(durationStr)} ${cost(costStr)}`);
+  } else if (durationStr) {
+    parts.push(dim(durationStr));
+  } else if (costStr) {
+    parts.push(cost(costStr));
   }
 
   const customLine = display?.customLine;
@@ -95,15 +103,9 @@ export function renderProjectLine(ctx: RenderContext): string | null {
     parts.push(customColor(customLine, colors));
   }
 
-  // Our addition: cost display at the end
-  const costVal = ctx.stdin.cost?.total_cost_usd;
-  if (typeof costVal === 'number') {
-    parts.push(cost(`$${costVal.toFixed(2)}`));
-  }
-
   if (parts.length === 0) {
     return null;
   }
 
-  return parts.join(' \u2502 ');
+  return parts.join(sep());
 }
