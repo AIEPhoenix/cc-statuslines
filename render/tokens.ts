@@ -1,5 +1,4 @@
 import type { RenderContext } from '../types.ts';
-import { getTokenSpeeds } from '../speed-tracker.ts';
 import { dim, cyan, brightMagenta, brightCyan, green } from './colors.ts';
 
 export function renderTokensLine(ctx: RenderContext): string | null {
@@ -18,9 +17,12 @@ export function renderTokensLine(ctx: RenderContext): string | null {
   if (typeof totalOut === 'number') countParts.push(`${dim('out')} ${brightMagenta(fmtTokens(totalOut))}`);
   if (cacheTokens > 0) countParts.push(`${dim('cache')} ${green(fmtTokens(cacheTokens))}`);
 
-  const { inputSpeed, outputSpeed } = getTokenSpeeds(ctx.stdin);
-  if (inputSpeed !== null) speedParts.push(brightCyan(`↑${inputSpeed.toFixed(0)}`));
-  if (outputSpeed !== null) speedParts.push(brightMagenta(`↓${outputSpeed.toFixed(0)}`));
+  if (ctx.config?.display?.showSpeed !== false) {
+    const inputSpeed = ctx.transcript.inputTokensPerSec;
+    const outputSpeed = ctx.transcript.outputTokensPerSec;
+    if (typeof inputSpeed === 'number') speedParts.push(brightCyan(`↑${inputSpeed.toFixed(0)}`));
+    if (typeof outputSpeed === 'number') speedParts.push(brightMagenta(`↓${outputSpeed.toFixed(0)}`));
+  }
 
   const parts: string[] = [];
   if (ctx.claudeCodeVersion) parts.push(`\x1b[38;5;245mv${ctx.claudeCodeVersion}\x1b[0m`);

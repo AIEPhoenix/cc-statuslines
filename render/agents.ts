@@ -17,7 +17,8 @@ function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): st
   const m = a.model ? ` ${label(`[${a.model}]`, colors)}` : '';
   const desc = a.description ? label(`: ${a.description.length > 40 ? a.description.slice(0, 37) + '...' : a.description}`, colors) : '';
   const elapsed = fmtElapsed(a);
-  return `${icon} ${type}${m}${desc} ${label(`(${elapsed})`, colors)}`;
+  const speed = typeof a.outputTokensPerSec === 'number' ? ` | ${a.outputTokensPerSec.toFixed(1)} tok/s` : '';
+  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed})`, colors)}`;
 }
 
 function fmtElapsed(a: AgentEntry): string {

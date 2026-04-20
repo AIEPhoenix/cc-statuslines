@@ -1,6 +1,5 @@
 import type { RenderContext } from '../types.ts';
 import { getModelName, getProviderLabel } from '../stdin.ts';
-import { getOutputSpeed } from '../speed-tracker.ts';
 import { git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, custom as customColor, dim, RESET } from './colors.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold
@@ -77,13 +76,6 @@ export function renderProjectLine(ctx: RenderContext): string | null {
 
   if (ctx.extraLabel) {
     parts.push(label(ctx.extraLabel, colors));
-  }
-
-  if (display?.showSpeed) {
-    const speed = getOutputSpeed(ctx.stdin);
-    if (speed !== null) {
-      parts.push(label(`out: ${speed.toFixed(1)} tok/s`, colors));
-    }
   }
 
   // Duration and cost grouped together (no separator between them)
