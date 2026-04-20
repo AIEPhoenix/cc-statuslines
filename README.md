@@ -229,7 +229,7 @@ index.ts                    ← Entry point
     ├── transcript.ts       ← Parse transcript JSONL (tools, agents, todos)
     ├── config-reader.ts    ← Count CLAUDE.md, rules, MCPs, hooks
     ├── git.ts              ← Git branch, dirty, ahead/behind
-    ├── speed-tracker.ts    ← Token speed calculation
+    ├── speed-metrics.ts    ← Transcript-derived token speed
     ├── version.ts          ← Claude Code version detection
     └── render/
         ├── index.ts        ← Layout orchestration + line wrapping

@@ -1,7 +1,6 @@
 import type { RenderContext } from '../types.ts';
 import { isLimitReached } from '../types.ts';
 import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getTotalTokens } from '../stdin.ts';
-import { getOutputSpeed } from '../speed-tracker.ts';
 import { coloredBar, critical, git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, getContextColor, getQuotaColor, quotaBar, custom as customColor, RESET } from './colors.ts';
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
 
@@ -130,14 +129,6 @@ export function renderSessionLine(ctx: RenderContext): string {
           }
         }
       }
-    }
-  }
-
-  // Speed
-  if (display?.showSpeed) {
-    const speed = getOutputSpeed(ctx.stdin);
-    if (speed !== null) {
-      parts.push(label(`out: ${speed.toFixed(1)} tok/s`, colors));
     }
   }
 

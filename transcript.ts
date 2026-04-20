@@ -5,6 +5,7 @@ import * as readline from 'readline';
 import { createHash } from 'node:crypto';
 import { getHudDir } from './config.ts';
 import type { TranscriptData, ToolEntry, AgentEntry, TodoItem } from './types.ts';
+import { collectSpeed, outputTokensPerSec, inputTokensPerSec } from './speed-metrics.ts';
 
 interface TranscriptLine {
   timestamp?: string;
@@ -41,7 +42,7 @@ interface ContentBlock {
 interface TranscriptFileState { mtimeMs: number; size: number; }
 interface SerializedToolEntry extends Omit<ToolEntry, 'startTime' | 'endTime'> { startTime: string; endTime?: string; }
 interface SerializedAgentEntry extends Omit<AgentEntry, 'startTime' | 'endTime'> { startTime: string; endTime?: string; }
-interface SerializedTranscriptData { tools: SerializedToolEntry[]; agents: SerializedAgentEntry[]; todos: TodoItem[]; sessionStart?: string; sessionName?: string; }
+interface SerializedTranscriptData { tools: SerializedToolEntry[]; agents: SerializedAgentEntry[]; todos: TodoItem[]; sessionStart?: string; sessionName?: string; outputTokensPerSec?: number | null; inputTokensPerSec?: number | null; }
 interface TranscriptCacheFile { transcriptPath: string; transcriptState: TranscriptFileState; data: SerializedTranscriptData; }
 
 function getCachePath(transcriptPath: string): string {
@@ -60,6 +61,8 @@ function serialize(data: TranscriptData): SerializedTranscriptData {
     todos: data.todos.map(t => ({ ...t })),
     sessionStart: data.sessionStart?.toISOString(),
     sessionName: data.sessionName,
+    outputTokensPerSec: data.outputTokensPerSec ?? null,
+    inputTokensPerSec: data.inputTokensPerSec ?? null,
   };
 }
 
@@ -70,6 +73,8 @@ function deserialize(data: SerializedTranscriptData): TranscriptData {
     todos: data.todos.map(t => ({ ...t })),
     sessionStart: data.sessionStart ? new Date(data.sessionStart) : undefined,
     sessionName: data.sessionName,
+    outputTokensPerSec: data.outputTokensPerSec ?? null,
+    inputTokensPerSec: data.inputTokensPerSec ?? null,
   };
 }
 
@@ -130,9 +135,33 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   // Enrich unknown agent types from subagent meta.json files
   enrichAgentTypes(transcriptPath, result.agents, asyncAgentIdToToolId);
 
+  // Collect speeds: main session + each subagent
+  await attachSpeeds(transcriptPath, result);
+
   const hasRunning = result.agents.some(a => a.status === 'running');
   if (parsedCleanly && !hasRunning) writeCache(transcriptPath, state, result);
   return result;
+}
+
+async function attachSpeeds(transcriptPath: string, result: TranscriptData): Promise<void> {
+  // Main session speed
+  const mainMetrics = await collectSpeed(transcriptPath);
+  result.outputTokensPerSec = outputTokensPerSec(mainMetrics);
+  result.inputTokensPerSec = inputTokensPerSec(mainMetrics);
+
+  // Per-subagent speeds
+  const transcriptDir = path.dirname(transcriptPath);
+  const transcriptStem = path.basename(transcriptPath, '.jsonl');
+  const subagentsDir = path.join(transcriptDir, transcriptStem, 'subagents');
+  if (!fs.existsSync(subagentsDir)) return;
+
+  await Promise.all(result.agents.map(async agent => {
+    if (!agent.agentId) return;
+    const subPath = path.join(subagentsDir, `agent-${agent.agentId}.jsonl`);
+    if (!fs.existsSync(subPath)) return;
+    const m = await collectSpeed(subPath);
+    agent.outputTokensPerSec = outputTokensPerSec(m);
+  }));
 }
 
 function processEntry(
@@ -210,6 +239,7 @@ function processEntry(
       // Handle agent tool_results
       const agent = agentMap.get(block.tool_use_id);
       if (agent && tur) {
+        if (tur.agentId) agent.agentId = tur.agentId;
         if (tur.isAsync === true) {
           // Background agent: tool_result is just the launch notification.
           // Keep status as 'running'. Completion comes via queue-operation.

@@ -53,6 +53,8 @@ export interface AgentEntry {
   status: 'running' | 'completed';
   startTime: Date;
   endTime?: Date;
+  agentId?: string;
+  outputTokensPerSec?: number | null;
 }
 
 export interface TodoItem {
@@ -77,6 +79,8 @@ export interface TranscriptData {
   todos: TodoItem[];
   sessionStart?: Date;
   sessionName?: string;
+  outputTokensPerSec?: number | null;
+  inputTokensPerSec?: number | null;
 }
 
 export interface RenderContext {
