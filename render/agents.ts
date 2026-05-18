@@ -18,7 +18,9 @@ function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): st
   const desc = a.description ? label(`: ${a.description.length > 40 ? a.description.slice(0, 37) + '...' : a.description}`, colors) : '';
   const elapsed = fmtElapsed(a);
   const speed = typeof a.outputTokensPerSec === 'number' ? ` | ${a.outputTokensPerSec.toFixed(1)} tok/s` : '';
-  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed})`, colors)}`;
+  const tools = typeof a.totalToolUseCount === 'number' ? ` | ${a.totalToolUseCount}t` : '';
+  const tokens = typeof a.totalTokens === 'number' ? ` | ${fmtTokens(a.totalTokens)}` : '';
+  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed}${tools}${tokens})`, colors)}`;
 }
 
 function fmtElapsed(a: AgentEntry): string {
@@ -26,4 +28,10 @@ function fmtElapsed(a: AgentEntry): string {
   if (ms < 1000) return '<1s';
   if (ms < 60000) return `${Math.round(ms / 1000)}s`;
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+function fmtTokens(n: number): string {
+  if (n < 1000) return `${n}tok`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
 }
