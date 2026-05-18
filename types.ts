@@ -55,6 +55,8 @@ export interface AgentEntry {
   endTime?: Date;
   agentId?: string;
   outputTokensPerSec?: number | null;
+  totalTokens?: number;
+  totalToolUseCount?: number;
 }
 
 export interface TodoItem {

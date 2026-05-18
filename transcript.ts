@@ -28,6 +28,8 @@ interface ToolUseResult {
   description?: string;
   totalDurationMs?: number;
   outputFile?: string;
+  totalTokens?: number;
+  totalToolUseCount?: number;
 }
 
 interface ContentBlock {
@@ -255,6 +257,8 @@ function processEntry(
           }
           // Update type from toolUseResult (more accurate than input.subagent_type)
           if (tur.agentType) agent.type = tur.agentType;
+          if (typeof tur.totalTokens === 'number') agent.totalTokens = tur.totalTokens;
+          if (typeof tur.totalToolUseCount === 'number') agent.totalToolUseCount = tur.totalToolUseCount;
         }
         continue;
       }
