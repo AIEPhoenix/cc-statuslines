@@ -109,6 +109,11 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   const agentMap = new Map<string, AgentEntry>();
   // Maps agentId (from toolUseResult) back to tool_use_id for async agents
   const asyncAgentIdToToolId = new Map<string, string>();
+  // Buffers completion events whose async-launch tool_result hasn't been seen yet.
+  // The JSONL is appended per-event, but assistant-turn entries are flushed in batches —
+  // a fast subagent can have its queue-operation completion written BEFORE the
+  // tool_use/tool_result that launched it. Without this buffer, those completions are dropped.
+  const pendingCompletions = new Map<string, Date>();
   let latestTodos: TodoItem[] = [];
   const taskIdToIndex = new Map<string, number>();
   let latestSlug: string | undefined;
@@ -123,7 +128,7 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
         const entry = JSON.parse(line) as TranscriptLine;
         if (entry.type === 'custom-title' && typeof entry.customTitle === 'string') customTitle = entry.customTitle;
         else if (typeof entry.slug === 'string') latestSlug = entry.slug;
-        processEntry(entry, toolMap, agentMap, asyncAgentIdToToolId, taskIdToIndex, latestTodos, result);
+        processEntry(entry, toolMap, agentMap, asyncAgentIdToToolId, pendingCompletions, taskIdToIndex, latestTodos, result);
       } catch {}
     }
     parsedCleanly = true;
@@ -171,6 +176,7 @@ function processEntry(
   toolMap: Map<string, ToolEntry>,
   agentMap: Map<string, AgentEntry>,
   asyncAgentIdToToolId: Map<string, string>,
+  pendingCompletions: Map<string, Date>,
   taskIdToIndex: Map<string, number>,
   latestTodos: TodoItem[],
   result: TranscriptData,
@@ -191,6 +197,10 @@ function processEntry(
           agent.status = 'completed';
           agent.endTime = timestamp;
         }
+      } else {
+        // Completion arrived before the tool_result that establishes the agentId↔toolId
+        // mapping. Buffer it; the tool_result branch below will drain pending entries.
+        pendingCompletions.set(agentId, timestamp);
       }
     }
     return;
@@ -245,8 +255,17 @@ function processEntry(
         if (tur.isAsync === true) {
           // Background agent: tool_result is just the launch notification.
           // Keep status as 'running'. Completion comes via queue-operation.
-          if (tur.agentId) asyncAgentIdToToolId.set(tur.agentId, block.tool_use_id);
-          // Don't change status — stays 'running'
+          if (tur.agentId) {
+            asyncAgentIdToToolId.set(tur.agentId, block.tool_use_id);
+            // If the completion event was already seen (file order can put it before
+            // this tool_result), drain it now.
+            const pendingTs = pendingCompletions.get(tur.agentId);
+            if (pendingTs) {
+              agent.status = 'completed';
+              agent.endTime = pendingTs;
+              pendingCompletions.delete(tur.agentId);
+            }
+          }
         } else if (tur.status === 'completed') {
           // Foreground agent: tool_result means truly completed.
           agent.status = 'completed';
