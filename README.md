@@ -5,13 +5,13 @@ A custom status line for [Claude Code](https://docs.anthropic.com/en/docs/claude
 ## Preview
 
 ```
-[Fable 5 | high] · Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m $12.34 +156/-23
-Context █████░░░░░ 48%  │  Usage ████░░░░░░ 28%
-v2.1.170  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
-2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks
+[Fable 5 | high·think] · Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m (API: 38%) $12.34
+Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
+in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
+2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23 · v2.1.170
 ◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5
-◐ Explore: Researching docs (15s)
-✓ oracle: Code review (58s)
+◐ Explore [haiku 4.5]: Researching docs (15s | 95.0 tok/s) $0.42
+✓ oracle [fable 5]: Code review (58s | 31.4 tok/s) $7.41
 ▸ Implement auth system (3/7)
 ```
 
@@ -140,7 +140,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 |-----|---------|-------------|
 | `showModel` | `true` | Model name `[Fable 5]` |
 | `showEffort` | `true` | Effort + thinking inside the model bracket `[Fable 5 \| high·think]` |
-| `showLinesChanged` | `false` | Session lines added/removed `+156/-23` next to cost |
+| `showLinesChanged` | `false` | Session lines added/removed `+156/-23` on the environment line |
 | `showProject` | `true` | Project directory name |
 | `showContextBar` | `true` | Visual progress bar for context window |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
@@ -151,7 +151,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `showTokenBreakdown` | `true` | Token breakdown at high context (>=85%) |
 | `showConfigCounts` | `false` | CLAUDE.md, rules, MCPs, hooks counts |
 | `showSessionName` | `false` | Session slug or custom title from `/rename` |
-| `showClaudeCodeVersion` | `false` | CC version in project line |
+| `showClaudeCodeVersion` | `false` | CC version in the compact layout (expanded shows it on the env line) |
 | `showTokens` | `false` | Token stats line (in/out/cache + speed) |
 | `showTools` | `false` | Tool activity (running + completed counts) |
 | `showAgents` | `false` | Subagent status (running/completed) |
@@ -201,10 +201,10 @@ All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"mag
 ## What each line shows
 
 ```
-Line 1 (Project):    [Model | effort] · project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m $12.34 +156/-23
-Line 2 (Context):    Context █████░░░░░ 48%  │  Usage ████░░░░░░ 28%
-Line 3 (Tokens):     v2.1.170  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
-Line 4 (Env):        2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks
+Line 1 (Project):    [Model | effort·think] · project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m (API: 38%) $12.34
+Line 2 (Context):    Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
+Line 3 (Tokens):     in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
+Line 4 (Env):        2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23 · v2.1.170
 Line 5 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5
 Line 6+ (Agents):    ◐ Explore: Researching docs (15s)
                      ✓ oracle: Code review (58s)
