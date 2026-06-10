@@ -1,6 +1,7 @@
 import type { RenderContext } from '../types.ts';
-import { dim, cyan, brightMagenta, brightCyan, green } from './colors.ts';
-import { buildModelSegment } from './segments.ts';
+import { dim, cyan, brightMagenta, brightCyan, green, RESET } from './colors.ts';
+
+const COST_COLOR = '\x1b[38;5;178m'; // muted gold, same as agent costs
 
 export function renderTokensLine(ctx: RenderContext): string | null {
   if (ctx.config?.display?.showTokens === false) return null;
@@ -26,8 +27,8 @@ export function renderTokensLine(ctx: RenderContext): string | null {
   }
 
   const parts: string[] = [];
-  const modelPart = buildModelSegment(ctx);
-  if (modelPart) parts.push(modelPart);
+  const costVal = ctx.stdin.cost?.total_cost_usd;
+  if (typeof costVal === 'number') parts.push(`${COST_COLOR}$${costVal.toFixed(2)}${RESET}`);
   if (countParts.length > 0) parts.push(countParts.join(dim('  ')));
   if (speedParts.length > 0) parts.push(speedParts.join(dim('/')) + dim(' t/s'));
 

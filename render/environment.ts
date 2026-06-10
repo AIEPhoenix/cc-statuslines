@@ -1,5 +1,5 @@
 import type { RenderContext } from '../types.ts';
-import { buildLinesChangedSegment } from './segments.ts';
+import { buildModelSegment } from './segments.ts';
 
 const FAINT = '\x1b[38;5;242m'; // quieter than the standard dim label — pure background info
 const RESET = '\x1b[0m';
@@ -21,8 +21,8 @@ export function renderEnvironmentLine(ctx: RenderContext): string | null {
     }
   }
 
-  const lines = buildLinesChangedSegment(ctx);
-  if (lines) parts.push(lines);
+  const modelPart = buildModelSegment(ctx);
+  if (modelPart) parts.push(modelPart);
 
   return parts.length === 0 ? null : parts.join(faint(' · '));
 }
