@@ -8,6 +8,8 @@ export function renderEnvironmentLine(ctx: RenderContext): string | null {
   const display = ctx.config?.display;
   const parts: string[] = [];
 
+  if (ctx.claudeCodeVersion) parts.push(faint(`v${ctx.claudeCodeVersion}`));
+
   if (display?.showConfigCounts !== false) {
     const total = ctx.claudeMdCount + ctx.rulesCount + ctx.mcpCount + ctx.hooksCount;
     const threshold = display?.environmentThreshold ?? 0;
@@ -21,8 +23,6 @@ export function renderEnvironmentLine(ctx: RenderContext): string | null {
 
   const lines = buildLinesChangedSegment(ctx);
   if (lines) parts.push(lines);
-
-  if (ctx.claudeCodeVersion) parts.push(faint(`v${ctx.claudeCodeVersion}`));
 
   return parts.length === 0 ? null : parts.join(faint(' · '));
 }
