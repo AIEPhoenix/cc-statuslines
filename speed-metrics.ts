@@ -13,6 +13,9 @@ export interface SpeedMetrics {
   /** Wall-clock time Claude spent working (human prompt -> last event of that turn),
    * i.e. session duration minus waiting-for-user gaps. */
   activeDurationMs: number;
+  /** Timestamps of the first/last events in the file (null when empty). */
+  firstEventMs: number | null;
+  lastEventMs: number | null;
 }
 
 interface UsageTotals {
@@ -87,17 +90,18 @@ function parseTs(value: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-interface ScanResult { requests: SpeedRequest[]; model: string | null; totals: UsageTotals; activeDurationMs: number; }
+interface ScanResult { requests: SpeedRequest[]; model: string | null; totals: UsageTotals; activeDurationMs: number; firstEventMs: number | null; lastEventMs: number | null; }
 
 async function scanRequests(jsonlPath: string): Promise<ScanResult> {
   const totals: UsageTotals = { input: 0, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 };
-  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null, totals, activeDurationMs: 0 };
+  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null, totals, activeDurationMs: 0, firstEventMs: null, lastEventMs: null };
   const requests: SpeedRequest[] = [];
   let lastUserMs: number | null = null;
   let model: string | null = null;
   let activeMs = 0;
   let turnStartMs: number | null = null;
   let lastEventMs: number | null = null;
+  let firstEventMs: number | null = null;
 
   try {
     const rl = readline.createInterface({ input: fs.createReadStream(jsonlPath), crlfDelay: Infinity });
@@ -110,6 +114,7 @@ async function scanRequests(jsonlPath: string): Promise<ScanResult> {
       const ts = parseTs(e.timestamp);
 
       if (ts !== null) {
+        if (firstEventMs === null || ts < firstEventMs) firstEventMs = ts;
         // A new turn closes the previous one at its last event; the gap in
         // between (waiting for the user) is excluded from active time.
         if (isTurnStart(e)) {
@@ -155,7 +160,7 @@ async function scanRequests(jsonlPath: string): Promise<ScanResult> {
     activeMs += lastEventMs - turnStartMs;
   }
 
-  return { requests, model, totals, activeDurationMs: activeMs };
+  return { requests, model, totals, activeDurationMs: activeMs, firstEventMs, lastEventMs };
 }
 
 function mergeIntervals(intervals: SpeedInterval[]): SpeedInterval[] {
@@ -182,12 +187,12 @@ function buildMetrics(requests: SpeedRequest[], model: string | null): SpeedMetr
   }
   const merged = mergeIntervals(intervals);
   const totalDurationMs = merged.reduce((sum, iv) => sum + (iv.endMs - iv.startMs), 0);
-  return { totalDurationMs, inputTokens, outputTokens, requestCount: requests.length, model, costUsd: null, activeDurationMs: 0 };
+  return { totalDurationMs, inputTokens, outputTokens, requestCount: requests.length, model, costUsd: null, activeDurationMs: 0, firstEventMs: null, lastEventMs: null };
 }
 
 export async function collectSpeed(jsonlPath: string): Promise<SpeedMetrics> {
-  const { requests, model, totals, activeDurationMs } = await scanRequests(jsonlPath);
-  return { ...buildMetrics(requests, model), costUsd: estimateCostUsd(model, totals), activeDurationMs };
+  const { requests, model, totals, activeDurationMs, firstEventMs, lastEventMs } = await scanRequests(jsonlPath);
+  return { ...buildMetrics(requests, model), costUsd: estimateCostUsd(model, totals), activeDurationMs, firstEventMs, lastEventMs };
 }
 
 export function outputTokensPerSec(m: SpeedMetrics): number | null {

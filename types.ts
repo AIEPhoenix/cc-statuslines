@@ -97,6 +97,17 @@ export interface AgentEntry {
   costUsd?: number | null;
 }
 
+export interface WorkflowEntry {
+  runId: string;
+  name: string;
+  agentCount: number;
+  completedCount: number;
+  status: 'running' | 'completed';
+  startTime?: Date;
+  endTime?: Date;
+  costUsd?: number | null;
+}
+
 export interface TodoItem {
   content: string;
   status: 'pending' | 'in_progress' | 'completed';
@@ -116,6 +127,7 @@ export function isLimitReached(data: UsageData): boolean {
 export interface TranscriptData {
   tools: ToolEntry[];
   agents: AgentEntry[];
+  workflows: WorkflowEntry[];
   todos: TodoItem[];
   sessionStart?: Date;
   sessionName?: string;

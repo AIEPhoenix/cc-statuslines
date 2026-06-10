@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as readline from 'readline';
 import { createHash } from 'node:crypto';
 import { getHudDir } from './config.ts';
-import type { TranscriptData, ToolEntry, AgentEntry, TodoItem } from './types.ts';
+import type { TranscriptData, ToolEntry, AgentEntry, TodoItem, WorkflowEntry } from './types.ts';
 import { collectSpeed, outputTokensPerSec, inputTokensPerSec } from './speed-metrics.ts';
 
 interface TranscriptLine {
@@ -45,7 +45,8 @@ interface ContentBlock {
 interface TranscriptFileState { mtimeMs: number; size: number; }
 interface SerializedToolEntry extends Omit<ToolEntry, 'startTime' | 'endTime'> { startTime: string; endTime?: string; }
 interface SerializedAgentEntry extends Omit<AgentEntry, 'startTime' | 'endTime'> { startTime: string; endTime?: string; }
-interface SerializedTranscriptData { tools: SerializedToolEntry[]; agents: SerializedAgentEntry[]; todos: TodoItem[]; sessionStart?: string; sessionName?: string; outputTokensPerSec?: number | null; inputTokensPerSec?: number | null; activeDurationMs?: number | null; }
+interface SerializedWorkflowEntry extends Omit<WorkflowEntry, 'startTime' | 'endTime'> { startTime?: string; endTime?: string; }
+interface SerializedTranscriptData { tools: SerializedToolEntry[]; agents: SerializedAgentEntry[]; workflows?: SerializedWorkflowEntry[]; todos: TodoItem[]; sessionStart?: string; sessionName?: string; outputTokensPerSec?: number | null; inputTokensPerSec?: number | null; activeDurationMs?: number | null; }
 interface TranscriptCacheFile { transcriptPath: string; transcriptState: TranscriptFileState; data: SerializedTranscriptData; }
 
 function getCachePath(transcriptPath: string): string {
@@ -61,6 +62,7 @@ function serialize(data: TranscriptData): SerializedTranscriptData {
   return {
     tools: data.tools.map(t => ({ ...t, startTime: t.startTime.toISOString(), endTime: t.endTime?.toISOString() })),
     agents: data.agents.map(a => ({ ...a, startTime: a.startTime.toISOString(), endTime: a.endTime?.toISOString() })),
+    workflows: data.workflows.map(w => ({ ...w, startTime: w.startTime?.toISOString(), endTime: w.endTime?.toISOString() })),
     todos: data.todos.map(t => ({ ...t })),
     sessionStart: data.sessionStart?.toISOString(),
     sessionName: data.sessionName,
@@ -74,6 +76,7 @@ function deserialize(data: SerializedTranscriptData): TranscriptData {
   return {
     tools: data.tools.map(t => ({ ...t, startTime: new Date(t.startTime), endTime: t.endTime ? new Date(t.endTime) : undefined })),
     agents: data.agents.map(a => ({ ...a, startTime: new Date(a.startTime), endTime: a.endTime ? new Date(a.endTime) : undefined })),
+    workflows: (data.workflows ?? []).map(w => ({ ...w, startTime: w.startTime ? new Date(w.startTime) : undefined, endTime: w.endTime ? new Date(w.endTime) : undefined })),
     todos: data.todos.map(t => ({ ...t })),
     sessionStart: data.sessionStart ? new Date(data.sessionStart) : undefined,
     sessionName: data.sessionName,
@@ -126,12 +129,12 @@ function pruneCacheDir(dir: string): void {
 }
 
 export async function parseTranscript(transcriptPath: string): Promise<TranscriptData> {
-  const result: TranscriptData = { tools: [], agents: [], todos: [] };
+  const result: TranscriptData = { tools: [], agents: [], workflows: [], todos: [] };
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return result;
   const state = readFileState(transcriptPath);
   if (!state) return result;
   const cached = readCache(transcriptPath, state);
-  if (cached && !cached.agents.some(a => a.status === 'running')) return cached;
+  if (cached && !cached.agents.some(a => a.status === 'running') && !cached.workflows.some(w => w.status === 'running')) return cached;
 
   const toolMap = new Map<string, ToolEntry>();
   const agentMap = new Map<string, AgentEntry>();
@@ -175,9 +178,94 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   // Collect speeds: main session + each subagent
   await attachSpeeds(transcriptPath, result);
 
-  const hasRunning = result.agents.some(a => a.status === 'running');
+  // Aggregate harness-orchestrated workflow runs (Workflow tool fleets)
+  result.workflows = await collectWorkflows(transcriptPath);
+
+  const hasRunning = result.agents.some(a => a.status === 'running') || result.workflows.some(w => w.status === 'running');
   if (parsedCleanly && !hasRunning) writeCache(transcriptPath, state, result);
   return result;
+}
+
+const MAX_WORKFLOWS_SHOWN = 2;
+
+/**
+ * Workflow agents don't appear as Agent tool_use blocks in the main transcript —
+ * the harness orchestrates them under subagents/workflows/<runId>/. Aggregate
+ * each run into one entry from its journal (started/result pairs) and the
+ * per-agent JSONLs (timing + cost).
+ */
+async function collectWorkflows(transcriptPath: string): Promise<WorkflowEntry[]> {
+  const transcriptDir = path.dirname(transcriptPath);
+  const transcriptStem = path.basename(transcriptPath, '.jsonl');
+  const wfRoot = path.join(transcriptDir, transcriptStem, 'subagents', 'workflows');
+  let runDirs: Array<{ name: string; mtimeMs: number }> = [];
+  try {
+    runDirs = fs.readdirSync(wfRoot)
+      .map(name => { try { const st = fs.statSync(path.join(wfRoot, name)); return st.isDirectory() ? { name, mtimeMs: st.mtimeMs } : null; } catch { return null; } })
+      .filter((d): d is { name: string; mtimeMs: number } => d !== null)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(0, MAX_WORKFLOWS_SHOWN);
+  } catch { return []; }
+
+  const entries: WorkflowEntry[] = [];
+  for (const dir of runDirs) {
+    const entry = await collectWorkflowRun(transcriptDir, transcriptStem, path.join(wfRoot, dir.name), dir.name);
+    if (entry) entries.push(entry);
+  }
+  return entries.reverse(); // oldest first, matching agent ordering
+}
+
+async function collectWorkflowRun(transcriptDir: string, transcriptStem: string, runDir: string, runId: string): Promise<WorkflowEntry | null> {
+  let started = 0;
+  let completed = 0;
+  try {
+    const journal = fs.readFileSync(path.join(runDir, 'journal.jsonl'), 'utf8');
+    for (const line of journal.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const e = JSON.parse(line) as { type?: string };
+        if (e.type === 'started') started++;
+        else if (e.type === 'result') completed++;
+      } catch {}
+    }
+  } catch { return null; }
+  if (started === 0) return null;
+
+  // Per-agent JSONLs give wall-clock window and cost
+  let firstMs: number | null = null;
+  let lastMs: number | null = null;
+  let costUsd = 0;
+  let hasCost = false;
+  try {
+    const agentFiles = fs.readdirSync(runDir).filter(f => f.startsWith('agent-') && f.endsWith('.jsonl'));
+    await Promise.all(agentFiles.map(async f => {
+      const m = await collectSpeed(path.join(runDir, f));
+      if (m.firstEventMs !== null) firstMs = firstMs === null ? m.firstEventMs : Math.min(firstMs, m.firstEventMs);
+      if (m.lastEventMs !== null) lastMs = lastMs === null ? m.lastEventMs : Math.max(lastMs, m.lastEventMs);
+      if (typeof m.costUsd === 'number') { costUsd += m.costUsd; hasCost = true; }
+    }));
+  } catch {}
+
+  const running = started > completed;
+  return {
+    runId,
+    name: findWorkflowName(transcriptDir, transcriptStem, runId) ?? runId,
+    agentCount: started,
+    completedCount: completed,
+    status: running ? 'running' : 'completed',
+    startTime: firstMs !== null ? new Date(firstMs) : undefined,
+    endTime: !running && lastMs !== null ? new Date(lastMs) : undefined,
+    costUsd: hasCost ? costUsd : null,
+  };
+}
+
+/** The script file is saved as workflows/scripts/<name>-<runId>.js next to the run. */
+function findWorkflowName(transcriptDir: string, transcriptStem: string, runId: string): string | null {
+  try {
+    const scriptsDir = path.join(transcriptDir, transcriptStem, 'workflows', 'scripts');
+    const match = fs.readdirSync(scriptsDir).find(f => f.endsWith(`-${runId}.js`));
+    return match ? match.slice(0, -(`-${runId}.js`.length)) : null;
+  } catch { return null; }
 }
 
 async function attachSpeeds(transcriptPath: string, result: TranscriptData): Promise<void> {
