@@ -15,17 +15,21 @@ export function renderAgentsLine(ctx: RenderContext): string | null {
   return lines.join('\n');
 }
 
-/** One aggregated line per Workflow run: ◐ wf:name (2/4 agents | 15s) $0.18 */
+/** One aggregated line per Workflow run:
+ * ◐ wf:name [fable 5] (2/4 agents | 15s | 4.1k tok | 270 tok/s) $0.18 */
 function fmtWorkflow(w: WorkflowEntry, colors?: RenderContext['config']['colors']): string {
   const icon = w.status === 'running' ? yellow('◐') : green('✓');
   const name = `${dim('wf:')}${magenta(w.name)}`;
+  const m = w.model ? ` ${label(`[${w.model === 'mixed' ? 'mixed' : fmtModel(w.model)}]`, colors)}` : '';
   const agentsStr = w.status === 'running' ? `${w.completedCount}/${w.agentCount} agents` : `${w.agentCount} agents`;
   const elapsed = w.startTime
     ? fmtElapsedMs((w.endTime?.getTime() ?? Date.now()) - w.startTime.getTime())
     : null;
-  const stats = label(`(${[agentsStr, elapsed].filter(Boolean).join(' | ')})`, colors);
+  const tokens = typeof w.outputTokens === 'number' && w.outputTokens > 0 ? fmtTokens(w.outputTokens) : null;
+  const tps = typeof w.outputTokensPerSec === 'number' ? `${w.outputTokensPerSec.toFixed(0)} tok/s` : null;
+  const stats = label(`(${[agentsStr, elapsed, tokens, tps].filter(Boolean).join(' | ')})`, colors);
   const costStr = typeof w.costUsd === 'number' ? ` ${COST_COLOR}${fmtCost(w.costUsd)}${RESET}` : '';
-  return `${icon} ${name} ${stats}${costStr}`;
+  return `${icon} ${name}${m} ${stats}${costStr}`;
 }
 
 function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): string {

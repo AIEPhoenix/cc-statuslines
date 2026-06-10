@@ -12,7 +12,7 @@ v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Fable 5 | high·thin
 ◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
 ◐ Explore [haiku 4.5]: Researching docs (15s | 95.0 tok/s) $0.42
 ✓ oracle [fable 5]: Code review (58s | 31.4 tok/s) $7.41
-✓ wf:review-sweep (12 agents | 1m 40s) $4.85
+✓ wf:review-sweep [fable 5] (12 agents | 1m 40s | 48k | 480 tok/s) $4.85
 ▸ Implement auth system (3/7)
 ```
 
@@ -209,7 +209,7 @@ Line 4 (Env):        v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · 
 Line 5 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
 Line 6+ (Agents):    ◐ Explore: Researching docs (15s)
                      ✓ oracle: Code review (58s)
-                     ◐ wf:review-sweep (7/12 agents | 1m 02s) $3.10
+                     ◐ wf:review-sweep [fable 5] (7/12 agents | 1m 02s | 26k | 419 tok/s) $3.10
 Line N (Todos):      ▸ Implement feature (3/7)
 ```
 
@@ -232,7 +232,7 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | **API time** | `(act 1h 2m · api 21m)` — Claude working time and pure inference time |
 | **1M badge** | Context line shows `1M` once the session exceeds 200k tokens (extended window) |
 | **Per-agent cost** | Agent lines show estimated API-equivalent cost `\| $7.41` per subagent |
-| **Workflow fleets** | Harness-orchestrated Workflow runs aggregate to one line: `◐ wf:name (7/12 agents \| 1m) $3.10` |
+| **Workflow fleets** | Workflow runs aggregate to one line: `◐ wf:name [model] (7/12 agents \| 1m \| 26k \| 419 tok/s) $3.10` |
 | **Session name** | From stdin `session_name` (`/rename`), falling back to the transcript `ai-title` |
 | **Token stats line** | Input, output, cache token counts + input/output speed |
 | **CC version** | Claude Code version number on token line (from stdin, zero subprocess) |
