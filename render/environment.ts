@@ -1,5 +1,7 @@
 import type { RenderContext } from '../types.ts';
-import { label } from './colors.ts';
+
+const FAINT = '\x1b[38;5;242m'; // quieter than the standard dim label — pure background info
+const RESET = '\x1b[0m';
 
 export function renderEnvironmentLine(ctx: RenderContext): string | null {
   const display = ctx.config?.display;
@@ -15,5 +17,5 @@ export function renderEnvironmentLine(ctx: RenderContext): string | null {
   if (ctx.mcpCount > 0) parts.push(`${ctx.mcpCount} MCPs`);
   if (ctx.hooksCount > 0) parts.push(`${ctx.hooksCount} hooks`);
 
-  return parts.length === 0 ? null : label(parts.join(' · '), ctx.config?.colors);
+  return parts.length === 0 ? null : `${FAINT}${parts.join(' · ')}${RESET}`;
 }

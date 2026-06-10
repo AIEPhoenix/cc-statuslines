@@ -1,18 +1,21 @@
 import type { HudColorName, HudColorValue, HudColorOverrides } from '../config.ts';
 
 export const RESET = '\x1b[0m';
+// Curated 256-color palette: softer than raw ANSI brights, consistent across themes.
+// State colors (green/yellow/red) stay semantic; identity colors are muted; metadata is gray.
 const DIM = '\x1b[2m';
-const RED = '\x1b[31m';
-const GREEN = '\x1b[32m';
-const YELLOW = '\x1b[33m';
-const MAGENTA = '\x1b[35m';
-const CYAN = '\x1b[36m';
-const BRIGHT_BLUE = '\x1b[94m';
-const BRIGHT_MAGENTA = '\x1b[95m';
-const BRIGHT_CYAN = '\x1b[96m';
-const BRIGHT_GREEN = '\x1b[92m';
-const WHITE = '\x1b[37m';
+const RED = '\x1b[38;5;167m';            // soft red
+const GREEN = '\x1b[38;5;71m';           // soft green
+const YELLOW = '\x1b[38;5;179m';         // amber
+const MAGENTA = '\x1b[38;5;139m';        // muted purple
+const CYAN = '\x1b[38;5;116m';           // soft teal
+const BRIGHT_BLUE = '\x1b[38;5;110m';    // soft blue
+const BRIGHT_MAGENTA = '\x1b[38;5;175m'; // soft pink
+const BRIGHT_CYAN = '\x1b[38;5;117m';    // sky
+const BRIGHT_GREEN = '\x1b[38;5;108m';   // sage
+const WHITE = '\x1b[38;5;251m';
 const CLAUDE_ORANGE = '\x1b[38;5;208m';
+const BAR_TRACK = '\x1b[38;5;238m';      // empty portion of progress bars
 
 const ANSI_BY_NAME: Record<HudColorName, string> = { dim: DIM, red: RED, green: GREEN, yellow: YELLOW, magenta: MAGENTA, cyan: CYAN, brightBlue: BRIGHT_BLUE, brightMagenta: BRIGHT_MAGENTA };
 
@@ -70,12 +73,12 @@ export function quotaBar(percent: number, width = 10, colors?: Partial<HudColorO
   const w = Number.isFinite(width) ? Math.max(0, Math.round(width)) : 0;
   const p = Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
   const filled = Math.round((p / 100) * w);
-  return `${getQuotaColor(p, colors)}${'█'.repeat(filled)}${DIM}${'░'.repeat(w - filled)}${RESET}`;
+  return `${getQuotaColor(p, colors)}${'█'.repeat(filled)}${BAR_TRACK}${'░'.repeat(w - filled)}${RESET}`;
 }
 
 export function coloredBar(percent: number, width = 10, colors?: Partial<HudColorOverrides>): string {
   const w = Number.isFinite(width) ? Math.max(0, Math.round(width)) : 0;
   const p = Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
   const filled = Math.round((p / 100) * w);
-  return `${getContextColor(p, colors)}${'█'.repeat(filled)}${DIM}${'░'.repeat(w - filled)}${RESET}`;
+  return `${getContextColor(p, colors)}${'█'.repeat(filled)}${BAR_TRACK}${'░'.repeat(w - filled)}${RESET}`;
 }
