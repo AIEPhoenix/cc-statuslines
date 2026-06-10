@@ -11,8 +11,12 @@ export function renderProjectLine(ctx: RenderContext): string | null {
   const colors = ctx.config?.colors;
   const parts: string[] = [];
 
-  const modelPart = buildModelSegment(ctx);
-  if (modelPart) parts.push(modelPart);
+  // The model bracket leads the tokens line when that line is enabled;
+  // it only falls back here when the tokens line is off.
+  if (display?.showTokens === false) {
+    const modelPart = buildModelSegment(ctx);
+    if (modelPart) parts.push(modelPart);
+  }
 
   let projectPart: string | null = null;
   if (display?.showProject !== false && ctx.stdin.cwd) {

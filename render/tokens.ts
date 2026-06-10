@@ -1,5 +1,6 @@
 import type { RenderContext } from '../types.ts';
 import { dim, cyan, brightMagenta, brightCyan, green } from './colors.ts';
+import { buildModelSegment } from './segments.ts';
 
 export function renderTokensLine(ctx: RenderContext): string | null {
   if (ctx.config?.display?.showTokens === false) return null;
@@ -25,6 +26,8 @@ export function renderTokensLine(ctx: RenderContext): string | null {
   }
 
   const parts: string[] = [];
+  const modelPart = buildModelSegment(ctx);
+  if (modelPart) parts.push(modelPart);
   if (countParts.length > 0) parts.push(countParts.join(dim('  ')));
   if (speedParts.length > 0) parts.push(speedParts.join(dim('/')) + dim(' t/s'));
 
