@@ -231,11 +231,13 @@ async function collectWorkflowRun(transcriptDir: string, transcriptStem: string,
   } catch { return null; }
   if (started === 0) return null;
 
-  // Per-agent JSONLs give wall-clock window and cost
+  // Per-agent JSONLs give wall-clock window, cost, models, and output volume
   let firstMs: number | null = null;
   let lastMs: number | null = null;
   let costUsd = 0;
   let hasCost = false;
+  let outputTokens = 0;
+  const models = new Set<string>();
   try {
     const agentFiles = fs.readdirSync(runDir).filter(f => f.startsWith('agent-') && f.endsWith('.jsonl'));
     await Promise.all(agentFiles.map(async f => {
@@ -243,10 +245,13 @@ async function collectWorkflowRun(transcriptDir: string, transcriptStem: string,
       if (m.firstEventMs !== null) firstMs = firstMs === null ? m.firstEventMs : Math.min(firstMs, m.firstEventMs);
       if (m.lastEventMs !== null) lastMs = lastMs === null ? m.lastEventMs : Math.max(lastMs, m.lastEventMs);
       if (typeof m.costUsd === 'number') { costUsd += m.costUsd; hasCost = true; }
+      outputTokens += m.outputTokens;
+      if (m.model) models.add(m.model);
     }));
   } catch {}
 
   const running = started > completed;
+  const elapsedMs = firstMs !== null ? (running ? Date.now() : (lastMs ?? firstMs)) - firstMs : 0;
   return {
     runId,
     name: findWorkflowName(transcriptDir, transcriptStem, runId) ?? runId,
@@ -256,6 +261,9 @@ async function collectWorkflowRun(transcriptDir: string, transcriptStem: string,
     startTime: firstMs !== null ? new Date(firstMs) : undefined,
     endTime: !running && lastMs !== null ? new Date(lastMs) : undefined,
     costUsd: hasCost ? costUsd : null,
+    model: models.size === 1 ? Array.from(models)[0] : (models.size > 1 ? 'mixed' : null),
+    outputTokens,
+    outputTokensPerSec: elapsedMs > 0 && outputTokens > 0 ? outputTokens / (elapsedMs / 1000) : null,
   };
 }
 

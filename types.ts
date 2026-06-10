@@ -106,6 +106,11 @@ export interface WorkflowEntry {
   startTime?: Date;
   endTime?: Date;
   costUsd?: number | null;
+  /** Single model ID when the fleet is homogeneous, 'mixed' otherwise. */
+  model?: string | null;
+  outputTokens?: number;
+  /** Fleet output throughput: total output tokens / wall-clock elapsed. */
+  outputTokensPerSec?: number | null;
 }
 
 export interface TodoItem {
