@@ -94,6 +94,7 @@ export interface AgentEntry {
   outputTokensPerSec?: number | null;
   totalTokens?: number;
   totalToolUseCount?: number;
+  costUsd?: number | null;
 }
 
 export interface TodoItem {

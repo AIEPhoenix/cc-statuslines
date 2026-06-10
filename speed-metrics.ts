@@ -8,6 +8,37 @@ export interface SpeedMetrics {
   requestCount: number;
   /** Model ID from the first assistant entry (the model the agent actually ran on). */
   model: string | null;
+  /** Estimated API-equivalent cost in USD (null when the model has no pricing entry). */
+  costUsd: number | null;
+}
+
+interface UsageTotals {
+  input: number;
+  output: number;
+  cacheWrite5m: number;
+  cacheWrite1h: number;
+  cacheRead: number;
+}
+
+// $/MTok input and output. Cache rates derive from input: write 5m = 1.25x, 1h = 2x, read = 0.1x.
+const MODEL_PRICING: Array<{ match: RegExp; inPerM: number; outPerM: number }> = [
+  { match: /fable/, inPerM: 10, outPerM: 50 },
+  { match: /opus/, inPerM: 5, outPerM: 25 },
+  { match: /sonnet/, inPerM: 3, outPerM: 15 },
+  { match: /haiku/, inPerM: 1, outPerM: 5 },
+];
+
+function estimateCostUsd(model: string | null, t: UsageTotals): number | null {
+  if (!model) return null;
+  const p = MODEL_PRICING.find(e => e.match.test(model.toLowerCase()));
+  if (!p) return null;
+  return (
+    t.input * p.inPerM +
+    t.output * p.outPerM +
+    t.cacheWrite5m * p.inPerM * 1.25 +
+    t.cacheWrite1h * p.inPerM * 2 +
+    t.cacheRead * p.inPerM * 0.1
+  ) / 1e6;
 }
 
 interface SpeedInterval { startMs: number; endMs: number; }
@@ -22,6 +53,10 @@ interface AssistantUsage {
   output_tokens?: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+  } | null;
 }
 
 interface JsonlLine {
@@ -38,8 +73,11 @@ function parseTs(value: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-async function scanRequests(jsonlPath: string): Promise<{ requests: SpeedRequest[]; model: string | null }> {
-  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null };
+interface ScanResult { requests: SpeedRequest[]; model: string | null; totals: UsageTotals; }
+
+async function scanRequests(jsonlPath: string): Promise<ScanResult> {
+  const totals: UsageTotals = { input: 0, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 };
+  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null, totals };
   const requests: SpeedRequest[] = [];
   let lastUserMs: number | null = null;
   let model: string | null = null;
@@ -65,11 +103,23 @@ async function scanRequests(jsonlPath: string): Promise<{ requests: SpeedRequest
           outputTokens: u.output_tokens ?? 0,
           interval,
         });
+
+        totals.input += u.input_tokens ?? 0;
+        totals.output += u.output_tokens ?? 0;
+        totals.cacheRead += u.cache_read_input_tokens ?? 0;
+        const cc = u.cache_creation;
+        if (cc) {
+          totals.cacheWrite5m += cc.ephemeral_5m_input_tokens ?? 0;
+          totals.cacheWrite1h += cc.ephemeral_1h_input_tokens ?? 0;
+        } else {
+          // No TTL breakdown — assume the cheaper 5m rate
+          totals.cacheWrite5m += u.cache_creation_input_tokens ?? 0;
+        }
       }
     }
   } catch { /* ignore read errors */ }
 
-  return { requests, model };
+  return { requests, model, totals };
 }
 
 function mergeIntervals(intervals: SpeedInterval[]): SpeedInterval[] {
@@ -96,12 +146,12 @@ function buildMetrics(requests: SpeedRequest[], model: string | null): SpeedMetr
   }
   const merged = mergeIntervals(intervals);
   const totalDurationMs = merged.reduce((sum, iv) => sum + (iv.endMs - iv.startMs), 0);
-  return { totalDurationMs, inputTokens, outputTokens, requestCount: requests.length, model };
+  return { totalDurationMs, inputTokens, outputTokens, requestCount: requests.length, model, costUsd: null };
 }
 
 export async function collectSpeed(jsonlPath: string): Promise<SpeedMetrics> {
-  const { requests, model } = await scanRequests(jsonlPath);
-  return buildMetrics(requests, model);
+  const { requests, model, totals } = await scanRequests(jsonlPath);
+  return { ...buildMetrics(requests, model), costUsd: estimateCostUsd(model, totals) };
 }
 
 export function outputTokensPerSec(m: SpeedMetrics): number | null {

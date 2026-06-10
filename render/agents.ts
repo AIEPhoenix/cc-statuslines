@@ -20,7 +20,8 @@ function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): st
   const speed = typeof a.outputTokensPerSec === 'number' ? ` | ${a.outputTokensPerSec.toFixed(1)} tok/s` : '';
   const tools = typeof a.totalToolUseCount === 'number' ? ` | ${a.totalToolUseCount}t` : '';
   const tokens = typeof a.totalTokens === 'number' ? ` | ${fmtTokens(a.totalTokens)}` : '';
-  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed}${tools}${tokens})`, colors)}`;
+  const costStr = typeof a.costUsd === 'number' ? ` | ${fmtCost(a.costUsd)}` : '';
+  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed}${tools}${tokens}${costStr})`, colors)}`;
 }
 
 function fmtElapsed(a: AgentEntry): string {
@@ -28,6 +29,11 @@ function fmtElapsed(a: AgentEntry): string {
   if (ms < 1000) return '<1s';
   if (ms < 60000) return `${Math.round(ms / 1000)}s`;
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+function fmtCost(usd: number): string {
+  if (usd < 0.01) return '<$0.01';
+  return `$${usd.toFixed(2)}`;
 }
 
 /** Compact label from a model ID or alias: "claude-haiku-4-5-20251001" → "haiku 4.5". */

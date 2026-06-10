@@ -198,6 +198,7 @@ async function attachSpeeds(transcriptPath: string, result: TranscriptData): Pro
     agent.outputTokensPerSec = outputTokensPerSec(m);
     // The model the agent actually ran on beats the requested override from input.model
     if (m.model) agent.model = m.model;
+    agent.costUsd = m.costUsd;
   }));
 }
 
