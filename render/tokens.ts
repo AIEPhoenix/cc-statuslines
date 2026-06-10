@@ -1,5 +1,5 @@
 import type { RenderContext } from '../types.ts';
-import { dim, cyan, brightMagenta, brightCyan, green, RESET } from './colors.ts';
+import { dim, cyan, brightMagenta, brightGreen, RESET } from './colors.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold, same as agent costs
 
@@ -17,12 +17,12 @@ export function renderTokensLine(ctx: RenderContext): string | null {
 
   if (typeof totalIn === 'number') countParts.push(`${dim('in')} ${cyan(fmtTokens(totalIn))}`);
   if (typeof totalOut === 'number') countParts.push(`${dim('out')} ${brightMagenta(fmtTokens(totalOut))}`);
-  if (cacheTokens > 0) countParts.push(`${dim('cache')} ${green(fmtTokens(cacheTokens))}`);
+  if (cacheTokens > 0) countParts.push(`${dim('cache')} ${brightGreen(fmtTokens(cacheTokens))}`);
 
   if (ctx.config?.display?.showSpeed !== false) {
     const inputSpeed = ctx.transcript.inputTokensPerSec;
     const outputSpeed = ctx.transcript.outputTokensPerSec;
-    if (typeof inputSpeed === 'number') speedParts.push(brightCyan(`↑${fmtSpeed(inputSpeed)}`));
+    if (typeof inputSpeed === 'number') speedParts.push(cyan(`↑${fmtSpeed(inputSpeed)}`));
     if (typeof outputSpeed === 'number') speedParts.push(brightMagenta(`↓${fmtSpeed(outputSpeed)}`));
   }
 
