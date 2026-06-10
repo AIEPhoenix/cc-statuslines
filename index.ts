@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     const stdinSessionName = stdin.session_name?.trim();
     if (stdinSessionName) transcript.sessionName = stdinSessionName;
 
-    const sessionDuration = formatSessionDuration(stdin.cost?.total_duration_ms, transcript.sessionStart);
+    const sessionDuration = formatSessionDuration(stdin.cost?.total_duration_ms, transcript.sessionStart, stdin.cost?.total_api_duration_ms);
     const claudeCodeVersion = stdin.version?.trim() || undefined;
 
     const ctx: RenderContext = {
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   }
 }
 
-function formatSessionDuration(totalDurationMs: number | undefined, sessionStart?: Date): string {
+function formatSessionDuration(totalDurationMs: number | undefined, sessionStart?: Date, apiDurationMs?: number): string {
   let ms: number;
   if (typeof totalDurationMs === 'number' && totalDurationMs > 0) {
     ms = totalDurationMs;
@@ -67,11 +67,18 @@ function formatSessionDuration(totalDurationMs: number | undefined, sessionStart
   } else {
     return '';
   }
+  let base: string;
   const mins = Math.floor(ms / 60000);
-  if (mins < 1) return '<1m';
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  return `${hours}h ${mins % 60}m`;
+  if (mins < 1) base = '<1m';
+  else if (mins < 60) base = `${mins}m`;
+  else base = `${Math.floor(mins / 60)}h ${mins % 60}m`;
+
+  // Share of wall-clock time spent waiting on the API
+  if (typeof apiDurationMs === 'number' && apiDurationMs > 0 && ms > 0) {
+    const pct = Math.min(100, Math.round((apiDurationMs / ms) * 100));
+    base += ` (API: ${pct}%)`;
+  }
+  return base;
 }
 
 void main();

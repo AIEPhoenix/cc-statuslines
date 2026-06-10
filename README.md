@@ -139,14 +139,14 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | Key | Default | Description |
 |-----|---------|-------------|
 | `showModel` | `true` | Model name `[Fable 5]` |
-| `showEffort` | `true` | Reasoning effort level inside the model bracket `[Fable 5 \| high]` |
+| `showEffort` | `true` | Effort + thinking inside the model bracket `[Fable 5 \| high·think]` |
 | `showLinesChanged` | `false` | Session lines added/removed `+156/-23` next to cost |
 | `showProject` | `true` | Project directory name |
 | `showContextBar` | `true` | Visual progress bar for context window |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
 | `showUsage` | `true` | 5h/7d rate limit usage |
 | `usageBarEnabled` | `true` | Visual bar for usage (vs text only) |
-| `showDuration` | `false` | Session elapsed time |
+| `showDuration` | `false` | Session elapsed time + API time share `2h 9m (API: 38%)` |
 | `showSpeed` | `false` | Output token speed (tok/s) |
 | `showTokenBreakdown` | `true` | Token breakdown at high context (>=85%) |
 | `showConfigCounts` | `false` | CLAUDE.md, rules, MCPs, hooks counts |
@@ -227,6 +227,9 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | **Effort level** | `[Fable 5 \| high]` — reasoning effort from `effort.level` |
 | **PR awareness** | `PR #128✓` — current branch's GitHub PR with review state, clickable (OSC 8) |
 | **Worktree awareness** | `wt:name` — shown for `--worktree` sessions and linked git worktrees |
+| **API time share** | `(API: 38%)` — how much of the session's wall-clock went to model inference |
+| **1M badge** | Context line shows `1M` once the session exceeds 200k tokens (extended window) |
+| **Per-agent cost** | Agent lines show estimated API-equivalent cost `\| $7.41` per subagent |
 | **Session name** | From stdin `session_name` (`/rename`), falling back to the transcript `ai-title` |
 | **Token stats line** | Input, output, cache token counts + input/output speed |
 | **CC version** | Claude Code version number on token line (from stdin, zero subprocess) |

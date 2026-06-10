@@ -23,7 +23,9 @@ export function buildModelSegment(ctx: RenderContext): string | null {
 
   if (display?.showEffort !== false) {
     const effort = getEffortLevel(ctx.stdin);
-    if (effort) qualifiers.push(effort);
+    const thinking = ctx.stdin.thinking?.enabled === true;
+    const part = effort ? (thinking ? `${effort}·think` : effort) : (thinking ? 'think' : null);
+    if (part) qualifiers.push(part);
   }
 
   const inner = [getModelName(ctx.stdin), ...qualifiers].join(' | ');
