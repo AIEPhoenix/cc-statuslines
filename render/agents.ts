@@ -1,5 +1,5 @@
 import type { RenderContext, AgentEntry } from '../types.ts';
-import { yellow, green, magenta, label, RESET } from './colors.ts';
+import { yellow, green, magenta, white, label, dim, RESET } from './colors.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold, matches the project line cost
 
@@ -17,7 +17,7 @@ function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): st
   const icon = a.status === 'running' ? yellow('◐') : green('✓');
   const type = magenta(a.type);
   const m = a.model ? ` ${label(`[${fmtModel(a.model)}]`, colors)}` : '';
-  const desc = a.description ? label(`: ${a.description.length > 40 ? a.description.slice(0, 37) + '...' : a.description}`, colors) : '';
+  const desc = a.description ? `${dim(':')} ${white(a.description.length > 40 ? a.description.slice(0, 37) + '...' : a.description)}` : '';
   const elapsed = fmtElapsed(a);
   const speed = typeof a.outputTokensPerSec === 'number' ? ` | ${a.outputTokensPerSec.toFixed(1)} tok/s` : '';
   const tools = typeof a.totalToolUseCount === 'number' ? ` | ${a.totalToolUseCount}t` : '';

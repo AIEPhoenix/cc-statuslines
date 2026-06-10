@@ -1,8 +1,17 @@
 import type { RenderContext } from '../types.ts';
-import { label, project as projectColor, custom as customColor, dim, italic } from './colors.ts';
+import { label, project as projectColor, custom as customColor, dim, white, italic, RESET } from './colors.ts';
 import { buildGitSegment, buildAgentNameSegment } from './segments.ts';
 
+const DIM = '\x1b[2m';
+const VALUE = '\x1b[38;5;251m';
+
 function sep(): string { return dim(' · '); }
+
+/** Dim the scaffolding (act/api labels, parens) but keep the time values readable. */
+function fmtDurationTrio(s: string): string {
+  const highlighted = s.replace(/(\d+h \d+m|\d+h|\d+m|<1m)/g, m => `${RESET}${VALUE}${m}${RESET}${DIM}`);
+  return `${DIM}${highlighted}${RESET}`;
+}
 
 export function renderProjectLine(ctx: RenderContext): string | null {
   const display = ctx.config?.display;
@@ -28,7 +37,7 @@ export function renderProjectLine(ctx: RenderContext): string | null {
   }
 
   if (display?.showSessionName && ctx.transcript.sessionName) {
-    parts.push(italic(label(ctx.transcript.sessionName, colors)));
+    parts.push(italic(white(ctx.transcript.sessionName)));
   }
 
   const agentPart = buildAgentNameSegment(ctx);
@@ -40,7 +49,7 @@ export function renderProjectLine(ctx: RenderContext): string | null {
 
   // Cost lives on the tokens line; lines changed on the tools line
   if (display?.showDuration !== false && ctx.sessionDuration) {
-    parts.push(dim(ctx.sessionDuration));
+    parts.push(fmtDurationTrio(ctx.sessionDuration));
   }
 
   const customLine = display?.customLine;
