@@ -196,6 +196,8 @@ async function attachSpeeds(transcriptPath: string, result: TranscriptData): Pro
     if (!fs.existsSync(subPath)) return;
     const m = await collectSpeed(subPath);
     agent.outputTokensPerSec = outputTokensPerSec(m);
+    // The model the agent actually ran on beats the requested override from input.model
+    if (m.model) agent.model = m.model;
   }));
 }
 

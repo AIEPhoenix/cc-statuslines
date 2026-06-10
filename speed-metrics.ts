@@ -6,6 +6,8 @@ export interface SpeedMetrics {
   inputTokens: number;
   outputTokens: number;
   requestCount: number;
+  /** Model ID from the first assistant entry (the model the agent actually ran on). */
+  model: string | null;
 }
 
 interface SpeedInterval { startMs: number; endMs: number; }
@@ -27,7 +29,7 @@ interface JsonlLine {
   timestamp?: string;
   isSidechain?: boolean;
   isApiErrorMessage?: boolean;
-  message?: { usage?: AssistantUsage };
+  message?: { usage?: AssistantUsage; model?: string };
 }
 
 function parseTs(value: string | undefined): number | null {
@@ -36,10 +38,11 @@ function parseTs(value: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-async function scanRequests(jsonlPath: string): Promise<SpeedRequest[]> {
-  if (!fs.existsSync(jsonlPath)) return [];
+async function scanRequests(jsonlPath: string): Promise<{ requests: SpeedRequest[]; model: string | null }> {
+  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null };
   const requests: SpeedRequest[] = [];
   let lastUserMs: number | null = null;
+  let model: string | null = null;
 
   try {
     const rl = readline.createInterface({ input: fs.createReadStream(jsonlPath), crlfDelay: Infinity });
@@ -53,6 +56,7 @@ async function scanRequests(jsonlPath: string): Promise<SpeedRequest[]> {
       if (e.type === 'user' && ts !== null) { lastUserMs = ts; continue; }
 
       if (e.type === 'assistant' && e.message?.usage && ts !== null) {
+        if (!model && typeof e.message.model === 'string') model = e.message.model;
         const u = e.message.usage;
         const interval = lastUserMs !== null && ts > lastUserMs ? { startMs: lastUserMs, endMs: ts } : null;
         const inputTokens = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
@@ -65,7 +69,7 @@ async function scanRequests(jsonlPath: string): Promise<SpeedRequest[]> {
     }
   } catch { /* ignore read errors */ }
 
-  return requests;
+  return { requests, model };
 }
 
 function mergeIntervals(intervals: SpeedInterval[]): SpeedInterval[] {
@@ -81,7 +85,7 @@ function mergeIntervals(intervals: SpeedInterval[]): SpeedInterval[] {
   return merged;
 }
 
-function buildMetrics(requests: SpeedRequest[]): SpeedMetrics {
+function buildMetrics(requests: SpeedRequest[], model: string | null): SpeedMetrics {
   let inputTokens = 0;
   let outputTokens = 0;
   const intervals: SpeedInterval[] = [];
@@ -92,12 +96,12 @@ function buildMetrics(requests: SpeedRequest[]): SpeedMetrics {
   }
   const merged = mergeIntervals(intervals);
   const totalDurationMs = merged.reduce((sum, iv) => sum + (iv.endMs - iv.startMs), 0);
-  return { totalDurationMs, inputTokens, outputTokens, requestCount: requests.length };
+  return { totalDurationMs, inputTokens, outputTokens, requestCount: requests.length, model };
 }
 
 export async function collectSpeed(jsonlPath: string): Promise<SpeedMetrics> {
-  const requests = await scanRequests(jsonlPath);
-  return buildMetrics(requests);
+  const { requests, model } = await scanRequests(jsonlPath);
+  return buildMetrics(requests, model);
 }
 
 export function outputTokensPerSec(m: SpeedMetrics): number | null {

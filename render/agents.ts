@@ -14,7 +14,7 @@ export function renderAgentsLine(ctx: RenderContext): string | null {
 function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): string {
   const icon = a.status === 'running' ? yellow('◐') : green('✓');
   const type = magenta(a.type);
-  const m = a.model ? ` ${label(`[${a.model}]`, colors)}` : '';
+  const m = a.model ? ` ${label(`[${fmtModel(a.model)}]`, colors)}` : '';
   const desc = a.description ? label(`: ${a.description.length > 40 ? a.description.slice(0, 37) + '...' : a.description}`, colors) : '';
   const elapsed = fmtElapsed(a);
   const speed = typeof a.outputTokensPerSec === 'number' ? ` | ${a.outputTokensPerSec.toFixed(1)} tok/s` : '';
@@ -28,6 +28,14 @@ function fmtElapsed(a: AgentEntry): string {
   if (ms < 1000) return '<1s';
   if (ms < 60000) return `${Math.round(ms / 1000)}s`;
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+/** Compact label from a model ID or alias: "claude-haiku-4-5-20251001" → "haiku 4.5". */
+function fmtModel(m: string): string {
+  const match = m.toLowerCase().match(/(opus|sonnet|haiku|fable)[-_ ]?(\d+(?:[-.]\d+)?)?/);
+  if (!match) return m;
+  const ver = match[2]?.replace('-', '.');
+  return ver ? `${match[1]} ${ver}` : match[1];
 }
 
 function fmtTokens(n: number): string {
