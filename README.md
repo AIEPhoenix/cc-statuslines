@@ -5,9 +5,9 @@ A custom status line for [Claude Code](https://docs.anthropic.com/en/docs/claude
 ## Preview
 
 ```
-[Claude Opus 4.6] · Temp-Workspace git:(main*) · build-custom-hud · 2h 15m $12.34
+[Fable 5 | high] · Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m $12.34 +156/-23
 Context █████░░░░░ 48%  │  Usage ████░░░░░░ 28%
-v2.1.85  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
+v2.1.170  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks
 ◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5
 ◐ Explore: Researching docs (15s)
@@ -49,7 +49,8 @@ Add the `statusLine` config to `~/.claude/settings.json`:
 {
   "statusLine": {
     "type": "command",
-    "command": "bun --env-file /dev/null ~/.claude/hud/index.ts"
+    "command": "bun --env-file /dev/null ~/.claude/hud/index.ts",
+    "refreshInterval": 5
   }
 }
 ```
@@ -60,10 +61,14 @@ Or if you have `CLAUDE_CONFIG_DIR` set:
 {
   "statusLine": {
     "type": "command",
-    "command": "bun --env-file /dev/null $CLAUDE_CONFIG_DIR/hud/index.ts"
+    "command": "bun --env-file /dev/null $CLAUDE_CONFIG_DIR/hud/index.ts",
+    "refreshInterval": 5
   }
 }
 ```
+
+`refreshInterval` (Claude Code ≥2.1.150) re-runs the HUD every N seconds, so the session
+duration and running agent timers tick in real time instead of only updating on new messages.
 
 ### 4. Restart Claude Code
 
@@ -80,6 +85,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
   "lineLayout": "expanded",
   "display": {
     "showModel": true,
+    "showEffort": true,
     "showProject": true,
     "showContextBar": true,
     "showConfigCounts": true,
@@ -88,6 +94,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
     "showUsage": true,
     "usageBarEnabled": true,
     "showDuration": true,
+    "showLinesChanged": true,
     "showSessionName": true,
     "showTools": true,
     "showAgents": true,
@@ -98,7 +105,8 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
     "enabled": true,
     "showDirty": true,
     "showAheadBehind": false,
-    "showFileStats": false
+    "showFileStats": false,
+    "showPR": true
   }
 }
 ```
@@ -130,7 +138,9 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `showModel` | `true` | Model name `[Claude Opus 4.6]` |
+| `showModel` | `true` | Model name `[Fable 5]` |
+| `showEffort` | `true` | Reasoning effort level inside the model bracket `[Fable 5 \| high]` |
+| `showLinesChanged` | `false` | Session lines added/removed `+156/-23` next to cost |
 | `showProject` | `true` | Project directory name |
 | `showContextBar` | `true` | Visual progress bar for context window |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
@@ -156,6 +166,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `gitStatus.showDirty` | `true` | Show `*` for uncommitted changes |
 | `gitStatus.showAheadBehind` | `false` | Show `↑2 ↓1` ahead/behind counts |
 | `gitStatus.showFileStats` | `false` | Starship-style `!3 +1 ✘0 ?2` stats |
+| `gitStatus.showPR` | `true` | GitHub PR for current branch (`PR #128✓`, clickable via OSC 8) |
 
 #### Thresholds
 
@@ -190,9 +201,9 @@ All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"mag
 ## What each line shows
 
 ```
-Line 1 (Project):    [Model] · project git:(branch*) · session-name · 2h 15m $12.34
+Line 1 (Project):    [Model | effort] · project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m $12.34 +156/-23
 Line 2 (Context):    Context █████░░░░░ 48%  │  Usage ████░░░░░░ 28%
-Line 3 (Tokens):     v2.1.85  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
+Line 3 (Tokens):     v2.1.170  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
 Line 4 (Env):        2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks
 Line 5 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5
 Line 6+ (Agents):    ◐ Explore: Researching docs (15s)
@@ -212,12 +223,18 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | Feature | Description |
 |---------|-------------|
 | **Session cost** | `$12.34` — real-time cost from Claude Code's `cost.total_cost_usd` |
+| **Lines changed** | `+156/-23` — session-wide lines added/removed |
+| **Effort level** | `[Fable 5 \| high]` — reasoning effort from `effort.level` |
+| **PR awareness** | `PR #128✓` — current branch's GitHub PR with review state, clickable (OSC 8) |
+| **Worktree awareness** | `wt:name` — shown for `--worktree` sessions and linked git worktrees |
+| **Session name** | From stdin `session_name` (`/rename`), falling back to the transcript `ai-title` |
 | **Token stats line** | Input, output, cache token counts + input/output speed |
-| **CC version** | Claude Code version number on token line |
+| **CC version** | Claude Code version number on token line (from stdin, zero subprocess) |
 | **Real-time agent status** | Detects running/completed agents via transcript lifecycle analysis |
 | **Background agent detection** | Uses `queue-operation` events to track async agent completion |
 | **Agent type enrichment** | Reads `subagents/*.meta.json` for accurate agent type labels |
 | **Cache safety** | Skips transcript cache when agents are running to prevent stale state |
+| **Cache hygiene** | Prunes transcript-cache entries older than 14 days (throttled to once a day) |
 
 ## Architecture
 
@@ -230,9 +247,9 @@ index.ts                    ← Entry point
     ├── config-reader.ts    ← Count CLAUDE.md, rules, MCPs, hooks
     ├── git.ts              ← Git branch, dirty, ahead/behind
     ├── speed-metrics.ts    ← Transcript-derived token speed
-    ├── version.ts          ← Claude Code version detection
     └── render/
         ├── index.ts        ← Layout orchestration + line wrapping
+        ├── segments.ts     ← Shared segments: model+effort, git+worktree+PR, lines changed
         ├── project.ts      ← Line 1: model, project, git, duration, cost
         ├── identity.ts     ← Line 2L: context bar
         ├── usage.ts        ← Line 2R: rate limit usage

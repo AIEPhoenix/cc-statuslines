@@ -4,7 +4,6 @@ import { render } from './render/index.ts';
 import { countConfigs } from './config-reader.ts';
 import { getGitStatus } from './git.ts';
 import { loadConfig } from './config.ts';
-import { getClaudeCodeVersion } from './version.ts';
 import type { RenderContext } from './types.ts';
 
 async function main(): Promise<void> {
@@ -30,10 +29,13 @@ async function main(): Promise<void> {
       usageData = getUsageFromStdin(stdin);
     }
 
-    const sessionDuration = formatSessionDuration(transcript.sessionStart);
-    const claudeCodeVersion = (config.display.showClaudeCodeVersion || config.display.showTokens)
-      ? await getClaudeCodeVersion()
-      : undefined;
+    // Prefer the session name Claude Code provides directly (set via /rename or --name);
+    // fall back to the transcript-derived ai-title.
+    const stdinSessionName = stdin.session_name?.trim();
+    if (stdinSessionName) transcript.sessionName = stdinSessionName;
+
+    const sessionDuration = formatSessionDuration(stdin.cost?.total_duration_ms, transcript.sessionStart);
+    const claudeCodeVersion = stdin.version?.trim() || undefined;
 
     const ctx: RenderContext = {
       stdin,
@@ -56,9 +58,15 @@ async function main(): Promise<void> {
   }
 }
 
-function formatSessionDuration(sessionStart?: Date): string {
-  if (!sessionStart) return '';
-  const ms = Date.now() - sessionStart.getTime();
+function formatSessionDuration(totalDurationMs: number | undefined, sessionStart?: Date): string {
+  let ms: number;
+  if (typeof totalDurationMs === 'number' && totalDurationMs > 0) {
+    ms = totalDurationMs;
+  } else if (sessionStart) {
+    ms = Date.now() - sessionStart.getTime();
+  } else {
+    return '';
+  }
   const mins = Math.floor(ms / 60000);
   if (mins < 1) return '<1m';
   if (mins < 60) return `${mins}m`;

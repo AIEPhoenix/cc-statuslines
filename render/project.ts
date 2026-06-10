@@ -1,6 +1,6 @@
 import type { RenderContext } from '../types.ts';
-import { getModelName, getProviderLabel } from '../stdin.ts';
-import { git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, custom as customColor, dim, RESET } from './colors.ts';
+import { label, project as projectColor, custom as customColor, dim, RESET } from './colors.ts';
+import { buildModelSegment, buildGitSegment, buildLinesChangedSegment, buildAgentNameSegment } from './segments.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold
 function cost(text: string): string { return `${COST_COLOR}${text}${RESET}`; }
@@ -11,15 +11,8 @@ export function renderProjectLine(ctx: RenderContext): string | null {
   const colors = ctx.config?.colors;
   const parts: string[] = [];
 
-  if (display?.showModel !== false) {
-    const model = getModelName(ctx.stdin);
-    const providerLabel = getProviderLabel(ctx.stdin);
-    const showUsage = display?.showUsage !== false;
-    const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
-    const modelQualifier = providerLabel ?? (showUsage && hasApiKey ? red('API') : undefined);
-    const modelDisplay = modelQualifier ? `${model} | ${modelQualifier}` : model;
-    parts.push(modelColor(`[${modelDisplay}]`, colors));
-  }
+  const modelPart = buildModelSegment(ctx);
+  if (modelPart) parts.push(modelPart);
 
   let projectPart: string | null = null;
   if (display?.showProject !== false && ctx.stdin.cwd) {
@@ -29,34 +22,7 @@ export function renderProjectLine(ctx: RenderContext): string | null {
     projectPart = projectColor(projectPath, colors);
   }
 
-  let gitPart = '';
-  const gitConfig = ctx.config?.gitStatus;
-  const showGit = gitConfig?.enabled ?? true;
-
-  if (showGit && ctx.gitStatus) {
-    const gitParts: string[] = [ctx.gitStatus.branch];
-
-    if ((gitConfig?.showDirty ?? true) && ctx.gitStatus.isDirty) {
-      gitParts.push('*');
-    }
-
-    if (gitConfig?.showAheadBehind) {
-      if (ctx.gitStatus.ahead > 0) gitParts.push(` ↑${ctx.gitStatus.ahead}`);
-      if (ctx.gitStatus.behind > 0) gitParts.push(` ↓${ctx.gitStatus.behind}`);
-    }
-
-    if (gitConfig?.showFileStats && ctx.gitStatus.fileStats) {
-      const { modified, added, deleted, untracked } = ctx.gitStatus.fileStats;
-      const statParts: string[] = [];
-      if (modified > 0) statParts.push(`!${modified}`);
-      if (added > 0) statParts.push(`+${added}`);
-      if (deleted > 0) statParts.push(`✘${deleted}`);
-      if (untracked > 0) statParts.push(`?${untracked}`);
-      if (statParts.length > 0) gitParts.push(` ${statParts.join(' ')}`);
-    }
-
-    gitPart = `${gitColor('git:(', colors)}${gitBranchColor(gitParts.join(''), colors)}${gitColor(')', colors)}`;
-  }
+  const gitPart = buildGitSegment(ctx);
 
   if (projectPart && gitPart) {
     parts.push(`${projectPart} ${gitPart}`);
@@ -70,6 +36,9 @@ export function renderProjectLine(ctx: RenderContext): string | null {
     parts.push(label(ctx.transcript.sessionName, colors));
   }
 
+  const agentPart = buildAgentNameSegment(ctx);
+  if (agentPart) parts.push(agentPart);
+
   if (display?.showClaudeCodeVersion && ctx.claudeCodeVersion) {
     parts.push(label(`CC v${ctx.claudeCodeVersion}`, colors));
   }
@@ -78,17 +47,13 @@ export function renderProjectLine(ctx: RenderContext): string | null {
     parts.push(label(ctx.extraLabel, colors));
   }
 
-  // Duration and cost grouped together (no separator between them)
+  // Duration, cost, and lines changed grouped together (no separator between them)
   const costVal = ctx.stdin.cost?.total_cost_usd;
-  const durationStr = (display?.showDuration !== false && ctx.sessionDuration) ? ctx.sessionDuration : '';
-  const costStr = typeof costVal === 'number' ? `$${costVal.toFixed(2)}` : '';
-  if (durationStr && costStr) {
-    parts.push(`${dim(durationStr)} ${cost(costStr)}`);
-  } else if (durationStr) {
-    parts.push(dim(durationStr));
-  } else if (costStr) {
-    parts.push(cost(costStr));
-  }
+  const durationStr = (display?.showDuration !== false && ctx.sessionDuration) ? dim(ctx.sessionDuration) : '';
+  const costStr = typeof costVal === 'number' ? cost(`$${costVal.toFixed(2)}`) : '';
+  const linesStr = buildLinesChangedSegment(ctx) ?? '';
+  const sessionStats = [durationStr, costStr, linesStr].filter(Boolean).join(' ');
+  if (sessionStats) parts.push(sessionStats);
 
   const customLine = display?.customLine;
   if (customLine) {

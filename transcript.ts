@@ -12,6 +12,7 @@ interface TranscriptLine {
   type?: string;
   slug?: string;
   customTitle?: string;
+  aiTitle?: string;
   message?: { content?: ContentBlock[] };
   // queue-operation fields (for async agent completion)
   operation?: string;
@@ -94,6 +95,31 @@ function writeCache(transcriptPath: string, state: TranscriptFileState, data: Tr
     const cachePath = getCachePath(transcriptPath);
     fs.mkdirSync(path.dirname(cachePath), { recursive: true });
     fs.writeFileSync(cachePath, JSON.stringify({ transcriptPath: path.resolve(transcriptPath), transcriptState: state, data: serialize(data) }), 'utf8');
+    pruneCacheDir(path.dirname(cachePath));
+  } catch {}
+}
+
+const PRUNE_MARKER = '.last-prune';
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const MAX_CACHE_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Delete cache entries for long-dead sessions. Throttled via a marker file
+ * so the directory scan runs at most once a day across all hud invocations. */
+function pruneCacheDir(dir: string): void {
+  try {
+    const marker = path.join(dir, PRUNE_MARKER);
+    const now = Date.now();
+    try {
+      if (now - fs.statSync(marker).mtimeMs < PRUNE_INTERVAL_MS) return;
+    } catch {}
+    fs.writeFileSync(marker, '', 'utf8');
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const p = path.join(dir, name);
+      try {
+        if (now - fs.statSync(p).mtimeMs > MAX_CACHE_AGE_MS) fs.unlinkSync(p);
+      } catch {}
+    }
   } catch {}
 }
 
@@ -117,6 +143,7 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   let latestTodos: TodoItem[] = [];
   const taskIdToIndex = new Map<string, number>();
   let latestSlug: string | undefined;
+  let aiTitle: string | undefined;
   let customTitle: string | undefined;
   let parsedCleanly = false;
 
@@ -127,6 +154,7 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
       try {
         const entry = JSON.parse(line) as TranscriptLine;
         if (entry.type === 'custom-title' && typeof entry.customTitle === 'string') customTitle = entry.customTitle;
+        else if (entry.type === 'ai-title' && typeof entry.aiTitle === 'string') aiTitle = entry.aiTitle;
         else if (typeof entry.slug === 'string') latestSlug = entry.slug;
         processEntry(entry, toolMap, agentMap, asyncAgentIdToToolId, pendingCompletions, taskIdToIndex, latestTodos, result);
       } catch {}
@@ -137,7 +165,7 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   result.tools = Array.from(toolMap.values()).slice(-20);
   result.agents = Array.from(agentMap.values()).slice(-10);
   result.todos = latestTodos;
-  result.sessionName = customTitle ?? latestSlug;
+  result.sessionName = customTitle ?? aiTitle ?? latestSlug;
 
   // Enrich unknown agent types from subagent meta.json files
   enrichAgentTypes(transcriptPath, result.agents, asyncAgentIdToToolId);
@@ -293,7 +321,11 @@ function extractTarget(name: string, input?: Record<string, unknown>): string | 
   if (!input) return undefined;
   switch (name) {
     case 'Read': case 'Write': case 'Edit': return (input.file_path as string) ?? (input.path as string);
+    case 'NotebookEdit': return input.notebook_path as string;
     case 'Glob': case 'Grep': return input.pattern as string;
+    case 'Skill': return input.skill as string;
+    case 'ToolSearch': case 'WebSearch': return input.query as string;
+    case 'WebFetch': return input.url as string;
     case 'Bash': { const cmd = input.command as string; return cmd ? cmd.slice(0, 30) + (cmd.length > 30 ? '...' : '') : undefined; }
   }
   return undefined;

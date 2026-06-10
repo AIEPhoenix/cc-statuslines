@@ -15,7 +15,9 @@
     "usageBarEnabled": true,
     "showDuration": true,
     "showSessionName": true,
-    "showTokens": true
+    "showTokens": true,
+    "showEffort": true,
+    "showLinesChanged": true
   },
   "gitStatus": {
     "enabled": true,

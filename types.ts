@@ -4,10 +4,43 @@ import type { GitStatus } from './git.ts';
 export interface StdinData {
   transcript_path?: string;
   cwd?: string;
+  session_id?: string;
+  session_name?: string;
+  version?: string;
   model?: {
     id?: string;
     display_name?: string;
   };
+  workspace?: {
+    current_dir?: string;
+    project_dir?: string;
+    git_worktree?: string | null;
+  };
+  output_style?: {
+    name?: string;
+  };
+  effort?: {
+    level?: string;
+  } | null;
+  thinking?: {
+    enabled?: boolean;
+  };
+  vim?: {
+    mode?: string;
+  };
+  agent?: {
+    name?: string;
+  };
+  pr?: {
+    number?: number;
+    url?: string;
+    review_state?: string;
+  } | null;
+  worktree?: {
+    name?: string;
+    branch?: string;
+  } | null;
+  exceeds_200k_tokens?: boolean;
   context_window?: {
     context_window_size?: number;
     total_input_tokens?: number;
@@ -33,6 +66,10 @@ export interface StdinData {
   } | null;
   cost?: {
     total_cost_usd?: number;
+    total_duration_ms?: number;
+    total_api_duration_ms?: number;
+    total_lines_added?: number;
+    total_lines_removed?: number;
   };
 }
 
