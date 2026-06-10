@@ -44,10 +44,10 @@ function fmtWindow({ l, percent, resetAt, colors, usageBarEnabled, barWidth, for
   const ud = fmtPercent(percent, colors);
   const reset = fmtReset(resetAt);
   if (usageBarEnabled) {
-    const body = reset ? `${quotaBar(percent ?? 0, barWidth, colors)} ${ud} (resets in ${reset})` : `${quotaBar(percent ?? 0, barWidth, colors)} ${ud}`;
+    const body = reset ? `${quotaBar(percent ?? 0, barWidth, colors)} ${ud} ${label(`(resets in ${reset})`, colors)}` : `${quotaBar(percent ?? 0, barWidth, colors)} ${ud}`;
     return forceLabel ? `${l}: ${body}` : body;
   }
-  return reset ? `${l}: ${ud} (resets in ${reset})` : `${l}: ${ud}`;
+  return reset ? `${l}: ${ud} ${label(`(resets in ${reset})`, colors)}` : `${l}: ${ud}`;
 }
 
 function fmtReset(resetAt: Date | null): string {

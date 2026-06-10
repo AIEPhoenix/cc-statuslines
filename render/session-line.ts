@@ -5,7 +5,7 @@ import { coloredBar, critical, label, project as projectColor, getContextColor, 
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
 import { buildModelSegment, buildGitSegment, buildLinesChangedSegment, buildAgentNameSegment } from './segments.ts';
 
-const COST_COLOR = '\x1b[38;5;220m';
+const COST_COLOR = '\x1b[38;5;178m'; // muted gold, same as the expanded layout
 function cost(text: string): string { return `${COST_COLOR}${text}${RESET}`; }
 
 export function renderSessionLine(ctx: RenderContext): string {
@@ -178,10 +178,10 @@ function formatUsageWindowPart({ label: l, percent, resetAt, colors, usageBarEna
   const usageDisplay = formatUsagePercent(percent, colors);
   const reset = formatResetTime(resetAt);
   if (usageBarEnabled) {
-    const body = reset ? `${quotaBar(percent ?? 0, barWidth, colors)} ${usageDisplay} (${reset} / ${l})` : `${quotaBar(percent ?? 0, barWidth, colors)} ${usageDisplay}`;
+    const body = reset ? `${quotaBar(percent ?? 0, barWidth, colors)} ${usageDisplay} ${label(`(${reset} / ${l})`, colors)}` : `${quotaBar(percent ?? 0, barWidth, colors)} ${usageDisplay}`;
     return forceLabel ? `${l}: ${body}` : body;
   }
-  return reset ? `${l}: ${usageDisplay} (${reset})` : `${l}: ${usageDisplay}`;
+  return reset ? `${l}: ${usageDisplay} ${label(`(${reset})`, colors)}` : `${l}: ${usageDisplay}`;
 }
 
 function formatResetTime(resetAt: Date | null): string {

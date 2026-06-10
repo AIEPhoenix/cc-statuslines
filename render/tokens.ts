@@ -25,9 +25,10 @@ export function renderTokensLine(ctx: RenderContext): string | null {
   }
 
   const parts: string[] = [];
-  if (ctx.claudeCodeVersion) parts.push(`\x1b[38;5;245mv${ctx.claudeCodeVersion}\x1b[0m`);
   if (countParts.length > 0) parts.push(countParts.join(dim('  ')));
   if (speedParts.length > 0) parts.push(speedParts.join(dim('/')) + dim(' t/s'));
+  // Version is the least important datum on this line — it goes last, in the deepest gray
+  if (ctx.claudeCodeVersion) parts.push(`\x1b[38;5;242mv${ctx.claudeCodeVersion}\x1b[0m`);
 
   return parts.length === 0 ? null : parts.join(dim('  ·  '));
 }

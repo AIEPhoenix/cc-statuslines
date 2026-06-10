@@ -108,8 +108,8 @@ export const DEFAULT_CONFIG: HudConfig = {
     critical: 'red',
     model: 'cyan',
     project: 'yellow',
-    git: 'magenta',
-    gitBranch: 'cyan',
+    git: 243,        // the git:( ) wrapper is chrome, not information — keep it gray
+    gitBranch: 146,  // soft lavender so the branch reads apart from the teal model bracket
     label: 'dim',
     custom: 208,
   },
