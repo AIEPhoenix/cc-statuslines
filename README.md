@@ -5,11 +5,11 @@ A custom status line for [Claude Code](https://docs.anthropic.com/en/docs/claude
 ## Preview
 
 ```
-Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m (act 1h 2m · api 21m) $12.34
+Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m (act 1h 2m · api 21m)
 Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
-[Fable 5 | high·think]  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
-v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23
-◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5
+$12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
+v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Fable 5 | high·think]
+◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
 ◐ Explore [haiku 4.5]: Researching docs (15s | 95.0 tok/s) $0.42
 ✓ oracle [fable 5]: Code review (58s | 31.4 tok/s) $7.41
 ▸ Implement auth system (3/7)
@@ -140,7 +140,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 |-----|---------|-------------|
 | `showModel` | `true` | Model name `[Fable 5]` |
 | `showEffort` | `true` | Effort + thinking inside the model bracket `[Fable 5 \| high·think]` |
-| `showLinesChanged` | `false` | Session lines added/removed `+156/-23` on the environment line |
+| `showLinesChanged` | `false` | Session lines added/removed `+156/-23` at the end of the tools line |
 | `showProject` | `true` | Project directory name |
 | `showContextBar` | `true` | Visual progress bar for context window |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
@@ -201,11 +201,11 @@ All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"mag
 ## What each line shows
 
 ```
-Line 1 (Project):    project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m (act 1h 2m · api 21m) $12.34
+Line 1 (Project):    project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m (act 1h 2m · api 21m)
 Line 2 (Context):    Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
-Line 3 (Tokens):     [Model | effort·think]  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
-Line 4 (Env):        v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23
-Line 5 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5
+Line 3 (Tokens):     $12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
+Line 4 (Env):        v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Model | effort·think]
+Line 5 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
 Line 6+ (Agents):    ◐ Explore: Researching docs (15s)
                      ✓ oracle: Code review (58s)
 Line N (Todos):      ▸ Implement feature (3/7)

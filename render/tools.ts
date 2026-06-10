@@ -1,11 +1,10 @@
 import type { RenderContext } from '../types.ts';
 import { yellow, green, cyan, label, dim } from './colors.ts';
+import { buildLinesChangedSegment } from './segments.ts';
 
 export function renderToolsLine(ctx: RenderContext): string | null {
   const { tools } = ctx.transcript;
   const colors = ctx.config?.colors;
-  if (tools.length === 0) return null;
-
   const parts: string[] = [];
   const running = tools.filter(t => t.status === 'running');
   const completed = tools.filter(t => t.status === 'completed' || t.status === 'error');
@@ -20,6 +19,9 @@ export function renderToolsLine(ctx: RenderContext): string | null {
   for (const [name, count] of Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4)) {
     parts.push(`${green('✓')} ${name} ${label(`×${count}`, colors)}`);
   }
+
+  const lines = buildLinesChangedSegment(ctx);
+  if (lines) parts.push(lines);
 
   return parts.length === 0 ? null : parts.join(dim('  '));
 }
