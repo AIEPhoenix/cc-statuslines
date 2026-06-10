@@ -1,5 +1,5 @@
 import type { RenderContext } from '../types.ts';
-import { yellow, green, label } from './colors.ts';
+import { yellow, green, white, label } from './colors.ts';
 
 export function renderTodosLine(ctx: RenderContext): string | null {
   const { todos } = ctx.transcript;
@@ -16,5 +16,5 @@ export function renderTodosLine(ctx: RenderContext): string | null {
   }
 
   const content = inProgress.content.length > 50 ? inProgress.content.slice(0, 47) + '...' : inProgress.content;
-  return `${yellow('▸')} ${content} ${label(`(${completed}/${total})`, colors)}`;
+  return `${yellow('▸')} ${white(content)} ${label(`(${completed}/${total})`, colors)}`;
 }

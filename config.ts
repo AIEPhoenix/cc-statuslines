@@ -106,7 +106,7 @@ export const DEFAULT_CONFIG: HudConfig = {
     warning: 'yellow',
     usageWarning: 'brightMagenta',
     critical: 'red',
-    model: 'cyan',
+    model: 'magenta', // muted purple — same family as agent types: "which brain is running"
     project: 'yellow',
     git: 243,        // the git:( ) wrapper is chrome, not information — keep it gray
     gitBranch: 146,  // soft lavender so the branch reads apart from the teal model bracket
