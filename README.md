@@ -5,7 +5,7 @@ A custom status line for [Claude Code](https://docs.anthropic.com/en/docs/claude
 ## Preview
 
 ```
-[Fable 5 | high·think] · Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m (API: 38%) $12.34
+[Fable 5 | high·think] · Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m (act: 1h 2m · API: 38%) $12.34
 Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
 in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
 v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23
@@ -146,7 +146,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
 | `showUsage` | `true` | 5h/7d rate limit usage |
 | `usageBarEnabled` | `true` | Visual bar for usage (vs text only) |
-| `showDuration` | `false` | Session elapsed time + API time share `2h 9m (API: 38%)` |
+| `showDuration` | `false` | Elapsed time + active time + API share `2h 9m (act: 1h 2m · API: 38%)` |
 | `showSpeed` | `false` | Output token speed (tok/s) |
 | `showTokenBreakdown` | `true` | Token breakdown at high context (>=85%) |
 | `showConfigCounts` | `false` | CLAUDE.md, rules, MCPs, hooks counts |
@@ -201,7 +201,7 @@ All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"mag
 ## What each line shows
 
 ```
-Line 1 (Project):    [Model | effort·think] · project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m (API: 38%) $12.34
+Line 1 (Project):    [Model | effort·think] · project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m (act: 1h 2m · API: 38%) $12.34
 Line 2 (Context):    Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
 Line 3 (Tokens):     in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
 Line 4 (Env):        v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23

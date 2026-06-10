@@ -45,7 +45,7 @@ interface ContentBlock {
 interface TranscriptFileState { mtimeMs: number; size: number; }
 interface SerializedToolEntry extends Omit<ToolEntry, 'startTime' | 'endTime'> { startTime: string; endTime?: string; }
 interface SerializedAgentEntry extends Omit<AgentEntry, 'startTime' | 'endTime'> { startTime: string; endTime?: string; }
-interface SerializedTranscriptData { tools: SerializedToolEntry[]; agents: SerializedAgentEntry[]; todos: TodoItem[]; sessionStart?: string; sessionName?: string; outputTokensPerSec?: number | null; inputTokensPerSec?: number | null; }
+interface SerializedTranscriptData { tools: SerializedToolEntry[]; agents: SerializedAgentEntry[]; todos: TodoItem[]; sessionStart?: string; sessionName?: string; outputTokensPerSec?: number | null; inputTokensPerSec?: number | null; activeDurationMs?: number | null; }
 interface TranscriptCacheFile { transcriptPath: string; transcriptState: TranscriptFileState; data: SerializedTranscriptData; }
 
 function getCachePath(transcriptPath: string): string {
@@ -66,6 +66,7 @@ function serialize(data: TranscriptData): SerializedTranscriptData {
     sessionName: data.sessionName,
     outputTokensPerSec: data.outputTokensPerSec ?? null,
     inputTokensPerSec: data.inputTokensPerSec ?? null,
+    activeDurationMs: data.activeDurationMs ?? null,
   };
 }
 
@@ -78,6 +79,7 @@ function deserialize(data: SerializedTranscriptData): TranscriptData {
     sessionName: data.sessionName,
     outputTokensPerSec: data.outputTokensPerSec ?? null,
     inputTokensPerSec: data.inputTokensPerSec ?? null,
+    activeDurationMs: data.activeDurationMs ?? null,
   };
 }
 
@@ -183,6 +185,7 @@ async function attachSpeeds(transcriptPath: string, result: TranscriptData): Pro
   const mainMetrics = await collectSpeed(transcriptPath);
   result.outputTokensPerSec = outputTokensPerSec(mainMetrics);
   result.inputTokensPerSec = inputTokensPerSec(mainMetrics);
+  result.activeDurationMs = mainMetrics.activeDurationMs > 0 ? mainMetrics.activeDurationMs : null;
 
   // Per-subagent speeds
   const transcriptDir = path.dirname(transcriptPath);

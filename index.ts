@@ -39,7 +39,12 @@ async function main(): Promise<void> {
       if (chars.length > 36) transcript.sessionName = chars.slice(0, 34).join('').trimEnd() + '…';
     }
 
-    const sessionDuration = formatSessionDuration(stdin.cost?.total_duration_ms, transcript.sessionStart, stdin.cost?.total_api_duration_ms);
+    const sessionDuration = formatSessionDuration(
+      stdin.cost?.total_duration_ms,
+      transcript.sessionStart,
+      stdin.cost?.total_api_duration_ms,
+      transcript.activeDurationMs ?? undefined,
+    );
     const claudeCodeVersion = stdin.version?.trim() || undefined;
 
     const ctx: RenderContext = {
@@ -63,7 +68,7 @@ async function main(): Promise<void> {
   }
 }
 
-function formatSessionDuration(totalDurationMs: number | undefined, sessionStart?: Date, apiDurationMs?: number): string {
+function formatSessionDuration(totalDurationMs: number | undefined, sessionStart?: Date, apiDurationMs?: number, activeDurationMs?: number): string {
   let ms: number;
   if (typeof totalDurationMs === 'number' && totalDurationMs > 0) {
     ms = totalDurationMs;
@@ -72,18 +77,26 @@ function formatSessionDuration(totalDurationMs: number | undefined, sessionStart
   } else {
     return '';
   }
-  let base: string;
-  const mins = Math.floor(ms / 60000);
-  if (mins < 1) base = '<1m';
-  else if (mins < 60) base = `${mins}m`;
-  else base = `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  let base = fmtDuration(ms);
 
-  // Share of wall-clock time spent waiting on the API
-  if (typeof apiDurationMs === 'number' && apiDurationMs > 0 && ms > 0) {
-    const pct = Math.min(100, Math.round((apiDurationMs / ms) * 100));
-    base += ` (API: ${pct}%)`;
+  // act: time Claude actually worked (waiting-for-input gaps excluded);
+  // API: share of wall-clock spent on model inference
+  const details: string[] = [];
+  if (typeof activeDurationMs === 'number' && activeDurationMs > 0) {
+    details.push(`act: ${fmtDuration(Math.min(activeDurationMs, ms))}`);
   }
+  if (typeof apiDurationMs === 'number' && apiDurationMs > 0 && ms > 0) {
+    details.push(`API: ${Math.min(100, Math.round((apiDurationMs / ms) * 100))}%`);
+  }
+  if (details.length > 0) base += ` (${details.join(' · ')})`;
   return base;
+}
+
+function fmtDuration(ms: number): string {
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return '<1m';
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
 void main();
