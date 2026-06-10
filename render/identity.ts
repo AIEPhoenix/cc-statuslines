@@ -1,6 +1,6 @@
 import type { RenderContext } from '../types.ts';
 import { getContextPercent, getBufferedPercent, getTotalTokens } from '../stdin.ts';
-import { coloredBar, label, getContextColor, RESET } from './colors.ts';
+import { coloredBar, label, getContextColor, brightBlue, RESET } from './colors.ts';
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
 
 export function renderIdentityLine(ctx: RenderContext): string {
@@ -12,7 +12,9 @@ export function renderIdentityLine(ctx: RenderContext): string {
   const display = ctx.config?.display;
   const mode = display?.contextValue ?? 'percent';
   const contextValue = formatContextValue(ctx, percent, mode);
-  const cvDisplay = `${getContextColor(percent, colors)}${contextValue}${RESET}`;
+  // 1M badge: context has grown past 200k, so the session runs on an extended window
+  const badge = ctx.stdin.exceeds_200k_tokens === true ? ` ${brightBlue('1M')}` : '';
+  const cvDisplay = `${getContextColor(percent, colors)}${contextValue}${RESET}${badge}`;
 
   let line = display?.showContextBar !== false
     ? `${label('Context', colors)} ${coloredBar(percent, getAdaptiveBarWidth(), colors)} ${cvDisplay}`
