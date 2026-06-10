@@ -79,14 +79,14 @@ function formatSessionDuration(totalDurationMs: number | undefined, sessionStart
   }
   let base = fmtDuration(ms);
 
-  // act: time Claude actually worked (waiting-for-input gaps excluded);
-  // API: share of wall-clock spent on model inference
+  // Same unit for all three: wall-clock ⊃ act (Claude working, input gaps
+  // excluded) ⊃ api (pure model inference)
   const details: string[] = [];
   if (typeof activeDurationMs === 'number' && activeDurationMs > 0) {
-    details.push(`act: ${fmtDuration(Math.min(activeDurationMs, ms))}`);
+    details.push(`act ${fmtDuration(Math.min(activeDurationMs, ms))}`);
   }
-  if (typeof apiDurationMs === 'number' && apiDurationMs > 0 && ms > 0) {
-    details.push(`API: ${Math.min(100, Math.round((apiDurationMs / ms) * 100))}%`);
+  if (typeof apiDurationMs === 'number' && apiDurationMs > 0) {
+    details.push(`api ${fmtDuration(Math.min(apiDurationMs, ms))}`);
   }
   if (details.length > 0) base += ` (${details.join(' · ')})`;
   return base;
