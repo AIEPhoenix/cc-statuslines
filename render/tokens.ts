@@ -20,8 +20,8 @@ export function renderTokensLine(ctx: RenderContext): string | null {
   if (ctx.config?.display?.showSpeed !== false) {
     const inputSpeed = ctx.transcript.inputTokensPerSec;
     const outputSpeed = ctx.transcript.outputTokensPerSec;
-    if (typeof inputSpeed === 'number') speedParts.push(brightCyan(`↑${inputSpeed.toFixed(0)}`));
-    if (typeof outputSpeed === 'number') speedParts.push(brightMagenta(`↓${outputSpeed.toFixed(0)}`));
+    if (typeof inputSpeed === 'number') speedParts.push(brightCyan(`↑${fmtSpeed(inputSpeed)}`));
+    if (typeof outputSpeed === 'number') speedParts.push(brightMagenta(`↓${fmtSpeed(outputSpeed)}`));
   }
 
   const parts: string[] = [];
@@ -36,4 +36,9 @@ function fmtTokens(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return n.toString();
+}
+
+function fmtSpeed(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return n.toFixed(0);
 }

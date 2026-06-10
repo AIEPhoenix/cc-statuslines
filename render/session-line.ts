@@ -1,7 +1,7 @@
 import type { RenderContext } from '../types.ts';
 import { isLimitReached } from '../types.ts';
 import { getContextPercent, getBufferedPercent, getProviderLabel, getTotalTokens } from '../stdin.ts';
-import { coloredBar, critical, label, project as projectColor, getContextColor, getQuotaColor, quotaBar, custom as customColor, RESET } from './colors.ts';
+import { coloredBar, critical, label, project as projectColor, getContextColor, getQuotaColor, quotaBar, custom as customColor, italic, RESET } from './colors.ts';
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
 import { buildModelSegment, buildGitSegment, buildLinesChangedSegment, buildAgentNameSegment } from './segments.ts';
 
@@ -59,7 +59,7 @@ export function renderSessionLine(ctx: RenderContext): string {
 
   // Session name
   if (display?.showSessionName && ctx.transcript.sessionName) {
-    parts.push(label(ctx.transcript.sessionName, colors));
+    parts.push(italic(label(ctx.transcript.sessionName, colors)));
   }
 
   const agentPart = buildAgentNameSegment(ctx);
