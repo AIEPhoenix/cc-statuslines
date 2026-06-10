@@ -8,7 +8,7 @@ A custom status line for [Claude Code](https://docs.anthropic.com/en/docs/claude
 [Fable 5 | high·think] · Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m (API: 38%) $12.34
 Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
 in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
-2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23 · v2.1.170
+v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23
 ◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5
 ◐ Explore [haiku 4.5]: Researching docs (15s | 95.0 tok/s) $0.42
 ✓ oracle [fable 5]: Code review (58s | 31.4 tok/s) $7.41
@@ -204,7 +204,7 @@ All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"mag
 Line 1 (Project):    [Model | effort·think] · project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m (API: 38%) $12.34
 Line 2 (Context):    Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
 Line 3 (Tokens):     in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
-Line 4 (Env):        2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23 · v2.1.170
+Line 4 (Env):        v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · +156/-23
 Line 5 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5
 Line 6+ (Agents):    ◐ Explore: Researching docs (15s)
                      ✓ oracle: Code review (58s)
