@@ -67,6 +67,16 @@ export function getProviderLabel(stdin: StdinData): string | null {
   return null;
 }
 
+export function getEffortLevel(stdin: StdinData): string | null {
+  const level = stdin.effort?.level?.trim();
+  return level ? level : null;
+}
+
+export function getWorktreeName(stdin: StdinData): string | null {
+  const name = stdin.worktree?.name?.trim() || stdin.workspace?.git_worktree?.trim();
+  return name ? name : null;
+}
+
 export function getUsageFromStdin(stdin: StdinData): UsageData | null {
   const r = stdin.rate_limits;
   if (!r) return null;
@@ -100,7 +110,7 @@ function normalizeBedrockModelLabel(modelId: string): string | null {
   let suffix = low.slice(idx + prefix.length).replace(/-v\d+:\d+$/, '').replace(/-\d{8}$/, '');
   const tokens = suffix.split('-').filter(Boolean);
   if (tokens.length === 0) return null;
-  const familyIndex = tokens.findIndex(t => t === 'haiku' || t === 'sonnet' || t === 'opus');
+  const familyIndex = tokens.findIndex(t => t === 'haiku' || t === 'sonnet' || t === 'opus' || t === 'fable');
   if (familyIndex === -1) return null;
   const family = tokens[familyIndex];
   const before = readNumVer(tokens, familyIndex - 1, -1).reverse();

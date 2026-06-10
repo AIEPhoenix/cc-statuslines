@@ -1,14 +1,14 @@
 import type { RenderContext } from '../types.ts';
 import { isLimitReached } from '../types.ts';
-import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getTotalTokens } from '../stdin.ts';
-import { coloredBar, critical, git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, getContextColor, getQuotaColor, quotaBar, custom as customColor, RESET } from './colors.ts';
+import { getContextPercent, getBufferedPercent, getProviderLabel, getTotalTokens } from '../stdin.ts';
+import { coloredBar, critical, label, project as projectColor, getContextColor, getQuotaColor, quotaBar, custom as customColor, RESET } from './colors.ts';
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
+import { buildModelSegment, buildGitSegment, buildLinesChangedSegment, buildAgentNameSegment } from './segments.ts';
 
 const COST_COLOR = '\x1b[38;5;220m';
 function cost(text: string): string { return `${COST_COLOR}${text}${RESET}`; }
 
 export function renderSessionLine(ctx: RenderContext): string {
-  const model = getModelName(ctx.stdin);
   const rawPercent = getContextPercent(ctx.stdin);
   const bufferedPercent = getBufferedPercent(ctx.stdin);
   const autocompactMode = ctx.config?.display?.autocompactBuffer ?? 'enabled';
@@ -26,15 +26,12 @@ export function renderSessionLine(ctx: RenderContext): string {
 
   // Model and context bar (FIRST)
   const providerLabel = getProviderLabel(ctx.stdin);
-  const showUsage = display?.showUsage !== false;
-  const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
-  const modelQualifier = providerLabel ?? (showUsage && hasApiKey ? red('API') : undefined);
-  const modelDisplay = modelQualifier ? `${model} | ${modelQualifier}` : model;
+  const modelPart = buildModelSegment(ctx);
 
-  if (display?.showModel !== false && display?.showContextBar !== false) {
-    parts.push(`${modelColor(`[${modelDisplay}]`, colors)} ${bar} ${contextValueDisplay}`);
-  } else if (display?.showModel !== false) {
-    parts.push(`${modelColor(`[${modelDisplay}]`, colors)} ${contextValueDisplay}`);
+  if (modelPart && display?.showContextBar !== false) {
+    parts.push(`${modelPart} ${bar} ${contextValueDisplay}`);
+  } else if (modelPart) {
+    parts.push(`${modelPart} ${contextValueDisplay}`);
   } else if (display?.showContextBar !== false) {
     parts.push(`${bar} ${contextValueDisplay}`);
   } else {
@@ -50,28 +47,7 @@ export function renderSessionLine(ctx: RenderContext): string {
     projectPart = projectColor(projectPath, colors);
   }
 
-  let gitPart = '';
-  const gitConfig = ctx.config?.gitStatus;
-  const showGit = gitConfig?.enabled ?? true;
-
-  if (showGit && ctx.gitStatus) {
-    const gitParts: string[] = [ctx.gitStatus.branch];
-    if ((gitConfig?.showDirty ?? true) && ctx.gitStatus.isDirty) gitParts.push('*');
-    if (gitConfig?.showAheadBehind) {
-      if (ctx.gitStatus.ahead > 0) gitParts.push(` ↑${ctx.gitStatus.ahead}`);
-      if (ctx.gitStatus.behind > 0) gitParts.push(` ↓${ctx.gitStatus.behind}`);
-    }
-    if (gitConfig?.showFileStats && ctx.gitStatus.fileStats) {
-      const { modified, added, deleted, untracked } = ctx.gitStatus.fileStats;
-      const statParts: string[] = [];
-      if (modified > 0) statParts.push(`!${modified}`);
-      if (added > 0) statParts.push(`+${added}`);
-      if (deleted > 0) statParts.push(`✘${deleted}`);
-      if (untracked > 0) statParts.push(`?${untracked}`);
-      if (statParts.length > 0) gitParts.push(` ${statParts.join(' ')}`);
-    }
-    gitPart = `${gitColor('git:(', colors)}${gitBranchColor(gitParts.join(''), colors)}${gitColor(')', colors)}`;
-  }
+  const gitPart = buildGitSegment(ctx);
 
   if (projectPart && gitPart) {
     parts.push(`${projectPart} ${gitPart}`);
@@ -85,6 +61,9 @@ export function renderSessionLine(ctx: RenderContext): string {
   if (display?.showSessionName && ctx.transcript.sessionName) {
     parts.push(label(ctx.transcript.sessionName, colors));
   }
+
+  const agentPart = buildAgentNameSegment(ctx);
+  if (agentPart) parts.push(agentPart);
 
   if (display?.showClaudeCodeVersion && ctx.claudeCodeVersion) {
     parts.push(label(`CC v${ctx.claudeCodeVersion}`, colors));
@@ -147,10 +126,13 @@ export function renderSessionLine(ctx: RenderContext): string {
     parts.push(customColor(customLine, colors));
   }
 
-  // Our addition: cost
+  // Our addition: cost + lines changed
   const costVal = ctx.stdin.cost?.total_cost_usd;
+  const linesStr = buildLinesChangedSegment(ctx);
   if (typeof costVal === 'number') {
-    parts.push(cost(`$${costVal.toFixed(2)}`));
+    parts.push(linesStr ? `${cost(`$${costVal.toFixed(2)}`)} ${linesStr}` : cost(`$${costVal.toFixed(2)}`));
+  } else if (linesStr) {
+    parts.push(linesStr);
   }
 
   let line = parts.join(' | ');

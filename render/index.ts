@@ -12,8 +12,11 @@ import { renderUsageLine } from './usage.ts';
 import { renderTokensLine } from './tokens.ts';
 import { dim, RESET } from './colors.ts';
 
-const ANSI_ESCAPE_PATTERN = /^\x1b\[[0-9;]*m/;
-const ANSI_ESCAPE_GLOBAL = /\x1b\[[0-9;]*m/g;
+// Matches CSI color sequences and OSC 8 hyperlink open/close sequences,
+// both of which occupy zero visual columns.
+const ANSI_ESCAPE_PATTERN = /^(?:\x1b\[[0-9;]*m|\x1b\]8;;[^\x07\x1b]*(?:\x07|\x1b\\))/;
+const ANSI_ESCAPE_GLOBAL = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const OSC8_CLOSE = '\x1b]8;;\x1b\\';
 const GRAPHEME_SEGMENTER = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 
 function stripAnsi(str: string): string { return str.replace(ANSI_ESCAPE_GLOBAL, ''); }
@@ -98,10 +101,19 @@ function sliceVisible(str: string, max: number): string {
   return result;
 }
 
+/** If truncation dropped an OSC 8 hyperlink terminator, close it so the link
+ * doesn't bleed into the rest of the line. */
+function closeDanglingHyperlink(str: string): string {
+  const idx = str.lastIndexOf('\x1b]8;;');
+  if (idx === -1 || str.startsWith(OSC8_CLOSE, idx)) return str;
+  return str + OSC8_CLOSE;
+}
+
 function truncateToWidth(str: string, maxWidth: number): string {
   if (maxWidth <= 0 || visualLength(str) <= maxWidth) return str;
   const suffix = maxWidth >= 3 ? '...' : '.'.repeat(maxWidth);
-  return `${sliceVisible(str, Math.max(0, maxWidth - suffix.length))}${suffix}${RESET}`;
+  const sliced = closeDanglingHyperlink(sliceVisible(str, Math.max(0, maxWidth - suffix.length)));
+  return `${sliced}${suffix}${RESET}`;
 }
 
 function splitWrapParts(line: string): Array<{ separator: string; segment: string }> {

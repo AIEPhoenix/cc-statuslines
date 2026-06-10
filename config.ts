@@ -39,9 +39,12 @@ export interface HudConfig {
     showDirty: boolean;
     showAheadBehind: boolean;
     showFileStats: boolean;
+    showPR: boolean;
   };
   display: {
     showModel: boolean;
+    showEffort: boolean;
+    showLinesChanged: boolean;
     showProject: boolean;
     showContextBar: boolean;
     contextValue: ContextValueMode;
@@ -71,9 +74,11 @@ export const DEFAULT_CONFIG: HudConfig = {
   showSeparators: false,
   pathLevels: 1,
   elementOrder: [...DEFAULT_ELEMENT_ORDER],
-  gitStatus: { enabled: true, showDirty: true, showAheadBehind: false, showFileStats: false },
+  gitStatus: { enabled: true, showDirty: true, showAheadBehind: false, showFileStats: false, showPR: true },
   display: {
     showModel: true,
+    showEffort: true,
+    showLinesChanged: false,
     showProject: true,
     showContextBar: true,
     contextValue: 'percent',
@@ -192,9 +197,12 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
       showDirty: bool(c.gitStatus?.showDirty, DEFAULT_CONFIG.gitStatus.showDirty),
       showAheadBehind: bool(c.gitStatus?.showAheadBehind, DEFAULT_CONFIG.gitStatus.showAheadBehind),
       showFileStats: bool(c.gitStatus?.showFileStats, DEFAULT_CONFIG.gitStatus.showFileStats),
+      showPR: bool(c.gitStatus?.showPR, DEFAULT_CONFIG.gitStatus.showPR),
     },
     display: {
       showModel: bool(c.display?.showModel, DEFAULT_CONFIG.display.showModel),
+      showEffort: bool(c.display?.showEffort, DEFAULT_CONFIG.display.showEffort),
+      showLinesChanged: bool(c.display?.showLinesChanged, DEFAULT_CONFIG.display.showLinesChanged),
       showProject: bool(c.display?.showProject, DEFAULT_CONFIG.display.showProject),
       showContextBar: bool(c.display?.showContextBar, DEFAULT_CONFIG.display.showContextBar),
       contextValue: validateContextValue(c.display?.contextValue) ? c.display!.contextValue : DEFAULT_CONFIG.display.contextValue,
