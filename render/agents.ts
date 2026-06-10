@@ -1,16 +1,31 @@
-import type { RenderContext, AgentEntry } from '../types.ts';
+import type { RenderContext, AgentEntry, WorkflowEntry } from '../types.ts';
 import { yellow, green, magenta, white, label, dim, RESET } from './colors.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold, matches the project line cost
 
 export function renderAgentsLine(ctx: RenderContext): string | null {
-  const { agents } = ctx.transcript;
+  const { agents, workflows } = ctx.transcript;
   const colors = ctx.config?.colors;
   const running = agents.filter(a => a.status === 'running');
   const recent = agents.filter(a => a.status === 'completed').reverse().slice(0, 2);
   const toShow = [...running, ...recent].slice(0, 3);
-  if (toShow.length === 0) return null;
-  return toShow.map(a => fmtAgent(a, colors)).join('\n');
+  const lines = toShow.map(a => fmtAgent(a, colors));
+  for (const wf of workflows ?? []) lines.push(fmtWorkflow(wf, colors));
+  if (lines.length === 0) return null;
+  return lines.join('\n');
+}
+
+/** One aggregated line per Workflow run: ◐ wf:name (2/4 agents | 15s) $0.18 */
+function fmtWorkflow(w: WorkflowEntry, colors?: RenderContext['config']['colors']): string {
+  const icon = w.status === 'running' ? yellow('◐') : green('✓');
+  const name = `${dim('wf:')}${magenta(w.name)}`;
+  const agentsStr = w.status === 'running' ? `${w.completedCount}/${w.agentCount} agents` : `${w.agentCount} agents`;
+  const elapsed = w.startTime
+    ? fmtElapsedMs((w.endTime?.getTime() ?? Date.now()) - w.startTime.getTime())
+    : null;
+  const stats = label(`(${[agentsStr, elapsed].filter(Boolean).join(' | ')})`, colors);
+  const costStr = typeof w.costUsd === 'number' ? ` ${COST_COLOR}${fmtCost(w.costUsd)}${RESET}` : '';
+  return `${icon} ${name} ${stats}${costStr}`;
 }
 
 function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): string {
@@ -27,7 +42,10 @@ function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): st
 }
 
 function fmtElapsed(a: AgentEntry): string {
-  const ms = (a.endTime?.getTime() ?? Date.now()) - a.startTime.getTime();
+  return fmtElapsedMs((a.endTime?.getTime() ?? Date.now()) - a.startTime.getTime());
+}
+
+function fmtElapsedMs(ms: number): string {
   if (ms < 1000) return '<1s';
   if (ms < 60000) return `${Math.round(ms / 1000)}s`;
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
