@@ -41,6 +41,8 @@ export function brightGreen(text: string): string { return colorize(text, BRIGHT
 export function brightBlue(text: string): string { return colorize(text, BRIGHT_BLUE); }
 export function brightMagenta(text: string): string { return colorize(text, BRIGHT_MAGENTA); }
 export function white(text: string): string { return colorize(text, WHITE); }
+/** Prefix-only: composes with color helpers whose trailing RESET also clears italic. */
+export function italic(text: string): string { return `\x1b[3m${text}`; }
 
 export function model(text: string, colors?: Partial<HudColorOverrides>): string { return withOverride(text, colors?.model, CYAN); }
 export function project(text: string, colors?: Partial<HudColorOverrides>): string { return withOverride(text, colors?.project, YELLOW); }

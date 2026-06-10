@@ -1,5 +1,7 @@
 import type { RenderContext, AgentEntry } from '../types.ts';
-import { yellow, green, magenta, label } from './colors.ts';
+import { yellow, green, magenta, label, RESET } from './colors.ts';
+
+const COST_COLOR = '\x1b[38;5;178m'; // muted gold, matches the project line cost
 
 export function renderAgentsLine(ctx: RenderContext): string | null {
   const { agents } = ctx.transcript;
@@ -20,8 +22,8 @@ function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): st
   const speed = typeof a.outputTokensPerSec === 'number' ? ` | ${a.outputTokensPerSec.toFixed(1)} tok/s` : '';
   const tools = typeof a.totalToolUseCount === 'number' ? ` | ${a.totalToolUseCount}t` : '';
   const tokens = typeof a.totalTokens === 'number' ? ` | ${fmtTokens(a.totalTokens)}` : '';
-  const costStr = typeof a.costUsd === 'number' ? ` | ${fmtCost(a.costUsd)}` : '';
-  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed}${tools}${tokens}${costStr})`, colors)}`;
+  const costStr = typeof a.costUsd === 'number' ? ` ${COST_COLOR}${fmtCost(a.costUsd)}${RESET}` : '';
+  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed}${tools}${tokens})`, colors)}${costStr}`;
 }
 
 function fmtElapsed(a: AgentEntry): string {

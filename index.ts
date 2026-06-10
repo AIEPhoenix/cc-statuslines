@@ -30,9 +30,14 @@ async function main(): Promise<void> {
     }
 
     // Prefer the session name Claude Code provides directly (set via /rename or --name);
-    // fall back to the transcript-derived ai-title.
+    // fall back to the transcript-derived ai-title. Auto-generated titles can be
+    // sentence-length, so cap them.
     const stdinSessionName = stdin.session_name?.trim();
     if (stdinSessionName) transcript.sessionName = stdinSessionName;
+    if (transcript.sessionName) {
+      const chars = Array.from(transcript.sessionName);
+      if (chars.length > 36) transcript.sessionName = chars.slice(0, 34).join('').trimEnd() + '…';
+    }
 
     const sessionDuration = formatSessionDuration(stdin.cost?.total_duration_ms, transcript.sessionStart, stdin.cost?.total_api_duration_ms);
     const claudeCodeVersion = stdin.version?.trim() || undefined;

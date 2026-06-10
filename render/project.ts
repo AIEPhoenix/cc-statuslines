@@ -1,5 +1,5 @@
 import type { RenderContext } from '../types.ts';
-import { label, project as projectColor, custom as customColor, dim, RESET } from './colors.ts';
+import { label, project as projectColor, custom as customColor, dim, italic, RESET } from './colors.ts';
 import { buildModelSegment, buildGitSegment, buildLinesChangedSegment, buildAgentNameSegment } from './segments.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold
@@ -33,7 +33,7 @@ export function renderProjectLine(ctx: RenderContext): string | null {
   }
 
   if (display?.showSessionName && ctx.transcript.sessionName) {
-    parts.push(label(ctx.transcript.sessionName, colors));
+    parts.push(italic(label(ctx.transcript.sessionName, colors)));
   }
 
   const agentPart = buildAgentNameSegment(ctx);
