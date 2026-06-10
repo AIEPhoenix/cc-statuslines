@@ -121,6 +121,7 @@ export interface TranscriptData {
   sessionName?: string;
   outputTokensPerSec?: number | null;
   inputTokensPerSec?: number | null;
+  activeDurationMs?: number | null;
 }
 
 export interface RenderContext {

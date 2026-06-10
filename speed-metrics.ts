@@ -10,6 +10,9 @@ export interface SpeedMetrics {
   model: string | null;
   /** Estimated API-equivalent cost in USD (null when the model has no pricing entry). */
   costUsd: number | null;
+  /** Wall-clock time Claude spent working (human prompt -> last event of that turn),
+   * i.e. session duration minus waiting-for-user gaps. */
+  activeDurationMs: number;
 }
 
 interface UsageTotals {
@@ -63,8 +66,19 @@ interface JsonlLine {
   type?: string;
   timestamp?: string;
   isSidechain?: boolean;
+  isMeta?: boolean;
   isApiErrorMessage?: boolean;
-  message?: { usage?: AssistantUsage; model?: string };
+  message?: { usage?: AssistantUsage; model?: string; content?: unknown };
+}
+
+/** A real prompt that starts a turn (human input or an injected wake-up),
+ * as opposed to tool_result user-entries emitted mid-turn. */
+function isTurnStart(e: JsonlLine): boolean {
+  if (e.type !== 'user' || e.isSidechain || e.isMeta) return false;
+  const c = e.message?.content;
+  if (typeof c === 'string') return true;
+  if (Array.isArray(c)) return !c.some(b => (b as { type?: string })?.type === 'tool_result');
+  return false;
 }
 
 function parseTs(value: string | undefined): number | null {
@@ -73,14 +87,17 @@ function parseTs(value: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-interface ScanResult { requests: SpeedRequest[]; model: string | null; totals: UsageTotals; }
+interface ScanResult { requests: SpeedRequest[]; model: string | null; totals: UsageTotals; activeDurationMs: number; }
 
 async function scanRequests(jsonlPath: string): Promise<ScanResult> {
   const totals: UsageTotals = { input: 0, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 };
-  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null, totals };
+  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null, totals, activeDurationMs: 0 };
   const requests: SpeedRequest[] = [];
   let lastUserMs: number | null = null;
   let model: string | null = null;
+  let activeMs = 0;
+  let turnStartMs: number | null = null;
+  let lastEventMs: number | null = null;
 
   try {
     const rl = readline.createInterface({ input: fs.createReadStream(jsonlPath), crlfDelay: Infinity });
@@ -91,6 +108,19 @@ async function scanRequests(jsonlPath: string): Promise<ScanResult> {
       if (e.isApiErrorMessage) continue;
 
       const ts = parseTs(e.timestamp);
+
+      if (ts !== null) {
+        // A new turn closes the previous one at its last event; the gap in
+        // between (waiting for the user) is excluded from active time.
+        if (isTurnStart(e)) {
+          if (turnStartMs !== null && lastEventMs !== null && lastEventMs > turnStartMs) {
+            activeMs += lastEventMs - turnStartMs;
+          }
+          turnStartMs = ts;
+        }
+        lastEventMs = lastEventMs === null ? ts : Math.max(lastEventMs, ts);
+      }
+
       if (e.type === 'user' && ts !== null) { lastUserMs = ts; continue; }
 
       if (e.type === 'assistant' && e.message?.usage && ts !== null) {
@@ -119,7 +149,13 @@ async function scanRequests(jsonlPath: string): Promise<ScanResult> {
     }
   } catch { /* ignore read errors */ }
 
-  return { requests, model, totals };
+  // Close the trailing turn — when the session is idle, lastEventMs is the
+  // final assistant event, so waiting-for-input time never accrues.
+  if (turnStartMs !== null && lastEventMs !== null && lastEventMs > turnStartMs) {
+    activeMs += lastEventMs - turnStartMs;
+  }
+
+  return { requests, model, totals, activeDurationMs: activeMs };
 }
 
 function mergeIntervals(intervals: SpeedInterval[]): SpeedInterval[] {
@@ -146,12 +182,12 @@ function buildMetrics(requests: SpeedRequest[], model: string | null): SpeedMetr
   }
   const merged = mergeIntervals(intervals);
   const totalDurationMs = merged.reduce((sum, iv) => sum + (iv.endMs - iv.startMs), 0);
-  return { totalDurationMs, inputTokens, outputTokens, requestCount: requests.length, model, costUsd: null };
+  return { totalDurationMs, inputTokens, outputTokens, requestCount: requests.length, model, costUsd: null, activeDurationMs: 0 };
 }
 
 export async function collectSpeed(jsonlPath: string): Promise<SpeedMetrics> {
-  const { requests, model, totals } = await scanRequests(jsonlPath);
-  return { ...buildMetrics(requests, model), costUsd: estimateCostUsd(model, totals) };
+  const { requests, model, totals, activeDurationMs } = await scanRequests(jsonlPath);
+  return { ...buildMetrics(requests, model), costUsd: estimateCostUsd(model, totals), activeDurationMs };
 }
 
 export function outputTokensPerSec(m: SpeedMetrics): number | null {
