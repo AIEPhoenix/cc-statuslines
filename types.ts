@@ -87,7 +87,11 @@ export interface AgentEntry {
   type: string;
   model?: string;
   description?: string;
-  status: 'running' | 'completed';
+  // 'idle' is the resting state of a FleetView teammate: it came to rest but is
+  // resumable — a later SendMessage flips it back to 'running'.
+  // 'stopped' is a terminal end without success: the agent was killed (stopped by
+  // user) or failed, as opposed to 'completed' which finished its work.
+  status: 'running' | 'idle' | 'completed' | 'stopped';
   startTime: Date;
   endTime?: Date;
   agentId?: string;

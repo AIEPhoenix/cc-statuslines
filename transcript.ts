@@ -13,7 +13,7 @@ interface TranscriptLine {
   slug?: string;
   customTitle?: string;
   aiTitle?: string;
-  message?: { content?: ContentBlock[] };
+  message?: { content?: ContentBlock[] | string };
   // queue-operation fields (for async agent completion)
   operation?: string;
   content?: string;
@@ -31,6 +31,10 @@ interface ToolUseResult {
   outputFile?: string;
   totalTokens?: number;
   totalToolUseCount?: number;
+  // teammate (FleetView in-process agent) launch fields — snake_case, distinct
+  // from the camelCase async-agent fields above.
+  name?: string;
+  agent_id?: string;
 }
 
 interface ContentBlock {
@@ -144,7 +148,14 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   // The JSONL is appended per-event, but assistant-turn entries are flushed in batches —
   // a fast subagent can have its queue-operation completion written BEFORE the
   // tool_use/tool_result that launched it. Without this buffer, those completions are dropped.
-  const pendingCompletions = new Map<string, Date>();
+  const pendingCompletions = new Map<string, { status: AgentEntry['status']; ts: Date }>();
+  // Teammate (FleetView in-process) agents have a 3-state lifecycle: running →
+  // idle (came to rest, via an idle_notification keyed by short name) → running
+  // again (re-awoken when the main session SendMessages it). Map name → tool_use_id
+  // so those later events resolve back to the agentMap entry; buffer an idle that
+  // arrives before the teammate_spawned tool_result (symmetric to pendingCompletions).
+  const teammateNameToToolId = new Map<string, string>();
+  const pendingTeammateIdle = new Map<string, Date>();
   let latestTodos: TodoItem[] = [];
   const taskIdToIndex = new Map<string, number>();
   let latestSlug: string | undefined;
@@ -161,7 +172,7 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
         if (entry.type === 'custom-title' && typeof entry.customTitle === 'string') customTitle = entry.customTitle;
         else if (entry.type === 'ai-title' && typeof entry.aiTitle === 'string') aiTitle = entry.aiTitle;
         else if (typeof entry.slug === 'string') latestSlug = entry.slug;
-        processEntry(entry, toolMap, agentMap, asyncAgentIdToToolId, pendingCompletions, taskIdToIndex, latestTodos, result);
+        processEntry(entry, toolMap, agentMap, asyncAgentIdToToolId, pendingCompletions, teammateNameToToolId, pendingTeammateIdle, taskIdToIndex, latestTodos, result);
       } catch {}
     }
     parsedCleanly = true;
@@ -174,6 +185,10 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
 
   // Enrich unknown agent types from subagent meta.json files
   enrichAgentTypes(transcriptPath, result.agents, asyncAgentIdToToolId);
+
+  // Teammates carry no filesystem agentId (their handle is name@session). Resolve it
+  // from the meta.json files so the speed/cost pass below can read their subagent JSONL.
+  enrichTeammateAgentIds(transcriptPath, result.agents, new Set(teammateNameToToolId.keys()));
 
   // Collect speeds: main session + each subagent
   await attachSpeeds(transcriptPath, result);
@@ -306,7 +321,9 @@ function processEntry(
   toolMap: Map<string, ToolEntry>,
   agentMap: Map<string, AgentEntry>,
   asyncAgentIdToToolId: Map<string, string>,
-  pendingCompletions: Map<string, Date>,
+  pendingCompletions: Map<string, { status: AgentEntry['status']; ts: Date }>,
+  teammateNameToToolId: Map<string, string>,
+  pendingTeammateIdle: Map<string, Date>,
   taskIdToIndex: Map<string, number>,
   latestTodos: TodoItem[],
   result: TranscriptData,
@@ -314,34 +331,73 @@ function processEntry(
   const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();
   if (!result.sessionStart && entry.timestamp) result.sessionStart = timestamp;
 
-  // Handle queue-operation: async agent completion notification
+  // Handle queue-operation: async agent terminal notification (completed | killed | failed).
   if (entry.type === 'queue-operation' && entry.operation === 'enqueue' && typeof entry.content === 'string') {
     const taskIdMatch = entry.content.match(/<task-id>([^<]+)<\/task-id>/);
     const statusMatch = entry.content.match(/<status>([^<]+)<\/status>/);
-    if (taskIdMatch && statusMatch?.[1] === 'completed') {
+    const term = terminalAgentStatus(statusMatch?.[1]);
+    if (taskIdMatch && term) {
       const agentId = taskIdMatch[1];
       const toolId = asyncAgentIdToToolId.get(agentId);
       if (toolId) {
         const agent = agentMap.get(toolId);
         if (agent) {
-          agent.status = 'completed';
+          agent.status = term;
           agent.endTime = timestamp;
         }
       } else {
-        // Completion arrived before the tool_result that establishes the agentId↔toolId
+        // Terminal event arrived before the tool_result that establishes the agentId↔toolId
         // mapping. Buffer it; the tool_result branch below will drain pending entries.
-        pendingCompletions.set(agentId, timestamp);
+        pendingCompletions.set(agentId, { status: term, ts: timestamp });
       }
     }
     return;
   }
 
   const content = entry.message?.content;
+
+  // Teammate came to rest: an idle_notification arrives as a user-turn whose message
+  // content is a plain string (not a content-block array). This is NOT a terminal
+  // "completed" — teammates have no close event; they go idle and stay resumable. A
+  // later SendMessage (handled below) flips it back to 'running'. endTime records the
+  // rest moment so the elapsed display freezes while idle.
+  if (typeof content === 'string') {
+    if (content.includes('idle_notification')) {
+      const re = /"type":"idle_notification","from":"([^"]+)"/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(content)) !== null) {
+        const name = m[1];
+        const toolId = teammateNameToToolId.get(name);
+        const agent = toolId ? agentMap.get(toolId) : undefined;
+        if (agent) {
+          agent.status = 'idle';
+          agent.endTime = timestamp;
+        } else {
+          // Notification seen before the teammate_spawned tool_result; buffer it.
+          pendingTeammateIdle.set(name, timestamp);
+        }
+      }
+    }
+    return;
+  }
+
   if (!content || !Array.isArray(content)) return;
 
   for (const block of content) {
     if (block.type === 'tool_use' && block.id && block.name) {
       const toolEntry: ToolEntry = { id: block.id, name: block.name, target: extractTarget(block.name, block.input), status: 'running', startTime: timestamp };
+      // Re-awaken: the main session SendMessages a resting agent, putting it back to
+      // work. `to` is either a teammate short name or an async agent's hex id — both
+      // resolve to a tool_use_id. Non-exclusive: falls through so the SendMessage is
+      // still recorded as a tool.
+      if (block.name === 'SendMessage') {
+        const to = (block.input as Record<string, unknown>)?.to;
+        if (typeof to === 'string') {
+          const toolId = teammateNameToToolId.get(to) ?? asyncAgentIdToToolId.get(to);
+          const reawoken = toolId ? agentMap.get(toolId) : undefined;
+          if (reawoken) { reawoken.status = 'running'; reawoken.endTime = undefined; }
+        }
+      }
       if (block.name === 'Agent' || block.name === 'Task') {
         const input = block.input as Record<string, unknown>;
         agentMap.set(block.id, {
@@ -387,27 +443,46 @@ function processEntry(
           // Keep status as 'running'. Completion comes via queue-operation.
           if (tur.agentId) {
             asyncAgentIdToToolId.set(tur.agentId, block.tool_use_id);
-            // If the completion event was already seen (file order can put it before
+            // If the terminal event was already seen (file order can put it before
             // this tool_result), drain it now.
-            const pendingTs = pendingCompletions.get(tur.agentId);
-            if (pendingTs) {
-              agent.status = 'completed';
-              agent.endTime = pendingTs;
+            const pending = pendingCompletions.get(tur.agentId);
+            if (pending) {
+              agent.status = pending.status;
+              agent.endTime = pending.ts;
               pendingCompletions.delete(tur.agentId);
             }
           }
-        } else if (tur.status === 'completed') {
-          // Foreground agent: tool_result means truly completed.
-          agent.status = 'completed';
-          agent.endTime = timestamp;
-          // Use accurate duration from toolUseResult if available
-          if (typeof tur.totalDurationMs === 'number') {
-            agent.endTime = new Date(agent.startTime.getTime() + tur.totalDurationMs);
+        } else if (tur.status === 'teammate_spawned') {
+          // FleetView in-process teammate: the tool_result is only the launch ack.
+          // Completion arrives later as an idle_notification keyed by the short name.
+          if (tur.name) {
+            teammateNameToToolId.set(tur.name, block.tool_use_id);
+            // The teammate's display identity is its name (e.g. "kiss-research"),
+            // which is more meaningful than the underlying base agent type.
+            agent.type = tur.name;
+            const pendingTs = pendingTeammateIdle.get(tur.name);
+            if (pendingTs) {
+              agent.status = 'idle';
+              agent.endTime = pendingTs;
+              pendingTeammateIdle.delete(tur.name);
+            }
           }
-          // Update type from toolUseResult (more accurate than input.subagent_type)
-          if (tur.agentType) agent.type = tur.agentType;
-          if (typeof tur.totalTokens === 'number') agent.totalTokens = tur.totalTokens;
-          if (typeof tur.totalToolUseCount === 'number') agent.totalToolUseCount = tur.totalToolUseCount;
+        } else {
+          // Foreground agent: a terminal tool_result status ends it (completed, or
+          // killed/failed → 'stopped').
+          const term = terminalAgentStatus(tur.status);
+          if (term) {
+            agent.status = term;
+            agent.endTime = timestamp;
+            // Use accurate duration from toolUseResult if available
+            if (typeof tur.totalDurationMs === 'number') {
+              agent.endTime = new Date(agent.startTime.getTime() + tur.totalDurationMs);
+            }
+            // Update type from toolUseResult (more accurate than input.subagent_type)
+            if (tur.agentType) agent.type = tur.agentType;
+            if (typeof tur.totalTokens === 'number') agent.totalTokens = tur.totalTokens;
+            if (typeof tur.totalToolUseCount === 'number') agent.totalToolUseCount = tur.totalToolUseCount;
+          }
         }
         continue;
       }
@@ -475,6 +550,57 @@ function enrichAgentTypes(
       const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
       if (meta.agentType) agent.type = meta.agentType;
     } catch {}
+  }
+}
+
+/** Map a subagent task/tool_result status to a terminal AgentEntry status, or null
+ * if it isn't terminal. Observed task-notification vocabulary: completed | failed | killed. */
+function terminalAgentStatus(s: unknown): AgentEntry['status'] | null {
+  if (typeof s !== 'string') return null;
+  switch (s) {
+    case 'completed': return 'completed';
+    case 'killed': case 'failed': case 'cancelled': case 'canceled': case 'error': case 'timeout': return 'stopped';
+    default: return null;
+  }
+}
+
+/**
+ * Teammate agents have no filesystem agentId (only a name@session handle), so the
+ * speed/cost enrichment can't locate their subagent JSONL. Resolve name → hash via
+ * the meta.json files (whose `agentType` holds the teammate name) and stamp it onto
+ * `agentId`. When a teammate spans several session files, pick the most-recently
+ * modified — the live one for a running teammate, and the freshest for a resting one.
+ */
+function enrichTeammateAgentIds(
+  transcriptPath: string,
+  agents: AgentEntry[],
+  teammateNames: Set<string>,
+): void {
+  const targets = agents.filter(a => !a.agentId && teammateNames.has(a.type));
+  if (targets.length === 0) return;
+
+  const transcriptDir = path.dirname(transcriptPath);
+  const transcriptStem = path.basename(transcriptPath, '.jsonl');
+  const subagentsDir = path.join(transcriptDir, transcriptStem, 'subagents');
+  if (!fs.existsSync(subagentsDir)) return;
+
+  // agentType (teammate name) → { hash, mtimeMs } of its latest subagent JSONL.
+  const latestByType = new Map<string, { hash: string; mtimeMs: number }>();
+  for (const name of fs.readdirSync(subagentsDir)) {
+    if (!name.startsWith('agent-') || !name.endsWith('.meta.json')) continue;
+    const hash = name.slice('agent-'.length, -'.meta.json'.length);
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(subagentsDir, name), 'utf8'));
+      if (typeof meta.agentType !== 'string' || !teammateNames.has(meta.agentType)) continue;
+      const mtimeMs = fs.statSync(path.join(subagentsDir, `agent-${hash}.jsonl`)).mtimeMs;
+      const prev = latestByType.get(meta.agentType);
+      if (!prev || mtimeMs > prev.mtimeMs) latestByType.set(meta.agentType, { hash, mtimeMs });
+    } catch {}
+  }
+
+  for (const a of targets) {
+    const hit = latestByType.get(a.type);
+    if (hit) a.agentId = hit.hash;
   }
 }
 
