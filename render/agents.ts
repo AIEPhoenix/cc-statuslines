@@ -1,15 +1,33 @@
 import type { RenderContext, AgentEntry, WorkflowEntry } from '../types.ts';
-import { yellow, green, magenta, white, label, dim, RESET } from './colors.ts';
+import { yellow, green, red, magenta, white, label, dim, brightBlue, RESET } from './colors.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold, matches the project line cost
+
+// An idle teammate resting longer than this during a live session is treated as
+// likely-abandoned (e.g. orphaned by a context compaction) and shown dimmed.
+const STALE_IDLE_MS = 10 * 60 * 1000;
+const MAX_AGENTS_SHOWN = 5;
+function isStaleIdle(a: AgentEntry): boolean {
+  return a.status === 'idle' && a.endTime != null && Date.now() - a.endTime.getTime() > STALE_IDLE_MS;
+}
 
 export function renderAgentsLine(ctx: RenderContext): string | null {
   const { agents, workflows } = ctx.transcript;
   const colors = ctx.config?.colors;
   const running = agents.filter(a => a.status === 'running');
-  const recent = agents.filter(a => a.status === 'completed').reverse().slice(0, 2);
-  const toShow = [...running, ...recent].slice(0, 3);
-  const lines = toShow.map(a => fmtAgent(a, colors));
+  // Idle teammates are still live work (resumable) — show them, after active ones.
+  // But an idle teammate with no terminal event can be a zombie: spawned before a
+  // context compaction, only a name handle survives, and it can never be killed
+  // (TaskStop needs a hex id), so it rests forever. De-prioritize and dim those once
+  // they've been idle far longer than any real pause.
+  const idle = agents.filter(a => a.status === 'idle').reverse();
+  const freshIdle = idle.filter(a => !isStaleIdle(a));
+  const staleIdle = idle.filter(isStaleIdle);
+  // Terminal agents (finished or stopped/killed/failed) — most recent first.
+  const recent = agents.filter(a => a.status === 'completed' || a.status === 'stopped').reverse();
+  // Priority: live work → fresh idle → recent terminals → likely-abandoned idle, last.
+  const toShow = [...running, ...freshIdle, ...recent, ...staleIdle].slice(0, MAX_AGENTS_SHOWN);
+  const lines = toShow.map(a => fmtAgent(a, colors, isStaleIdle(a)));
   for (const wf of workflows ?? []) lines.push(fmtWorkflow(wf, colors));
   if (lines.length === 0) return null;
   return lines.join('\n');
@@ -32,9 +50,12 @@ function fmtWorkflow(w: WorkflowEntry, colors?: RenderContext['config']['colors'
   return `${icon} ${name}${m} ${stats}${costStr}`;
 }
 
-function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): string {
-  const icon = a.status === 'running' ? yellow('◐') : green('✓');
-  const type = magenta(a.type);
+function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors'], stale = false): string {
+  const icon = a.status === 'running' ? yellow('◐')
+    : a.status === 'idle' ? (stale ? dim('⏸') : brightBlue('⏸'))
+    : a.status === 'stopped' ? red('✗')
+    : green('✓');
+  const type = stale ? dim(a.type) : magenta(a.type);
   const m = a.model ? ` ${label(`[${fmtModel(a.model)}]`, colors)}` : '';
   const desc = a.description ? `${dim(':')} ${white(a.description.length > 40 ? a.description.slice(0, 37) + '...' : a.description)}` : '';
   const elapsed = fmtElapsed(a);
@@ -42,7 +63,8 @@ function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors']): st
   const tools = typeof a.totalToolUseCount === 'number' ? ` | ${a.totalToolUseCount}t` : '';
   const tokens = typeof a.totalTokens === 'number' ? ` | ${fmtTokens(a.totalTokens)}` : '';
   const costStr = typeof a.costUsd === 'number' ? ` ${COST_COLOR}${fmtCost(a.costUsd)}${RESET}` : '';
-  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed}${tools}${tokens})`, colors)}${costStr}`;
+  const staleTag = stale ? ` ${dim('· stale')}` : '';
+  return `${icon} ${type}${m}${desc} ${label(`(${elapsed}${speed}${tools}${tokens})`, colors)}${costStr}${staleTag}`;
 }
 
 function fmtElapsed(a: AgentEntry): string {
