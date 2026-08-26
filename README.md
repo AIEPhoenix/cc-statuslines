@@ -6,7 +6,7 @@ A custom status line for [Claude Code](https://docs.anthropic.com/en/docs/claude
 
 ```
 Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m (act 1h 2m · api 21m)
-Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
+Context ███┊█░░░░░ 48% 1M ac@360k ×1  │  Usage ████░░░░░░ 28%
 $12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
 v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Fable 5 | high·think]
 ◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
@@ -144,6 +144,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `showLinesChanged` | `false` | Session lines added/removed `+156/-23` at the end of the tools line |
 | `showProject` | `true` | Project directory name |
 | `showContextBar` | `true` | Visual progress bar for context window |
+| `showCompactLine` | `true` | Auto-compact line: `ac@360k ×1` with a `┊` tick on the bar once observed from this session's compactions; `ac≈500k` (text only — the nominal window, actual trigger fires below it) when estimated from `autoCompactWindow` in settings / `CLAUDE_CODE_AUTO_COMPACT_WINDOW` |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
 | `showUsage` | `true` | 5h/7d rate limit usage |
 | `usageBarEnabled` | `true` | Visual bar for usage (vs text only) |
@@ -154,6 +155,10 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `showSessionName` | `false` | Session slug or custom title from `/rename` |
 | `showClaudeCodeVersion` | `false` | CC version in the compact layout (expanded shows it on the env line) |
 | `showTokens` | `false` | Token stats line (in/out/cache + speed) |
+| `showConnectivity` | `false` | Connectivity line `Net ● 1.2.3.4 · US · LAX` from `api.anthropic.com/cdn-cgi/trace`. Makes a network request: checked at most once/15s in a **detached background process** so rendering never blocks; the line shows the last cached result (`●` green live, yellow stale, `offline` when unreachable) |
+| `connectivityUrl` | `https://api.anthropic.com/cdn-cgi/trace` | Trace endpoint to check (any Cloudflare `cdn-cgi/trace` URL) |
+| `ipdataApiKey` | `""` | [ipdata.co](https://ipdata.co) API key. **Keep the key out of the committed `config.json`** — put it in `config.local.json` (gitignored) or the `IPDATA_API_KEY` env var instead; a key in either is picked up automatically. Setting it (with `showConnectivity` on) is the switch that turns on the IP-reputation badge: `⚠ TOR`/`VPN`/`proxy`/`abuse`/`DC`/`anon` when flagged (red if ipdata marks it a threat, else yellow), with a trailing severity (`threat_score`, or `Nbl` = blocklist count on the free tier), and dim `clean` otherwise. Also cross-checks ipdata's country against the Cloudflare loc and appends `⚠ geo US≠JP` on a mismatch. Results are cached per-IP for a day in `ip-risk-cache.json`, so a stable IP costs ~1 lookup/day — far under the free 1500/day |
+| `ipdataBaseUrl` | `https://api.ipdata.co` | ipdata endpoint (use `https://eu-api.ipdata.co` for the EU region) |
 | `showTools` | `false` | Tool activity (running + completed counts) |
 | `showAgents` | `false` | Subagent status (running/completed) |
 | `showTodos` | `false` | Task progress |
@@ -203,7 +208,7 @@ All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"mag
 
 ```
 Line 1 (Project):    project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m (act 1h 2m · api 21m)
-Line 2 (Context):    Context █████░░░░░ 48% 1M  │  Usage ████░░░░░░ 28%
+Line 2 (Context):    Context ███┊█░░░░░ 48% 1M ac@360k ×1  │  Usage ████░░░░░░ 28%
 Line 3 (Tokens):     $12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
 Line 4 (Env):        v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Model | effort·think]
 Line 5 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23

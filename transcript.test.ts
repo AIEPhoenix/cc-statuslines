@@ -213,3 +213,45 @@ test('stale idle is dimmed, tagged, and de-prioritized below fresh work', () => 
   expect(rows[1]).toContain('zombie');
   expect(rows[0]).not.toContain('stale');
 });
+
+// ---- compaction boundaries ----
+
+const compactBoundary = (trigger: string, preTokens: number, postTokens: number, t: string) =>
+  ({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', timestamp: t,
+     compactMetadata: { trigger, preTokens, postTokens, durationMs: 1000 } });
+
+test('compact_boundary records are counted and the auto line is learned', async () => {
+  const p = writeTranscript([
+    { type: 'user', timestamp: T(0), message: { content: [] } },
+    compactBoundary('manual', 700_000, 12_000, T(1)),
+    compactBoundary('auto', 360_000, 20_000, T(2)),
+  ]);
+  const c = (await parseTranscript(p)).compactions!;
+  expect(c.count).toBe(2);
+  expect(c.lastTrigger).toBe('auto');
+  expect(c.lastPreTokens).toBe(360_000);
+  expect(c.lastPostTokens).toBe(20_000);
+  expect(c.lastAutoPreTokens).toBe(360_000);
+});
+
+test('manual compaction after auto keeps the learned auto line', async () => {
+  const p = writeTranscript([
+    compactBoundary('auto', 360_000, 20_000, T(1)),
+    compactBoundary('manual', 150_000, 9_000, T(2)),
+  ]);
+  const c = (await parseTranscript(p)).compactions!;
+  expect(c.count).toBe(2);
+  expect(c.lastTrigger).toBe('manual');
+  expect(c.lastAutoPreTokens).toBe(360_000);
+});
+
+test('compactions survive the transcript cache round-trip', async () => {
+  const p = writeTranscript([compactBoundary('auto', 360_000, 20_000, T(1))]);
+  const first = await parseTranscript(p);
+  expect(first.compactions?.count).toBe(1);
+  // Second parse hits the cache (no running agents/workflows)
+  const second = await parseTranscript(p);
+  expect(second.compactions?.count).toBe(1);
+  expect(second.compactions?.lastAutoPreTokens).toBe(360_000);
+  expect(second.compactions?.lastTime).toBeInstanceOf(Date);
+});

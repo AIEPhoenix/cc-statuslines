@@ -5,7 +5,7 @@ import * as os from 'node:os';
 export type LineLayoutType = 'compact' | 'expanded';
 export type AutocompactBufferMode = 'enabled' | 'disabled';
 export type ContextValueMode = 'percent' | 'tokens' | 'remaining' | 'both';
-export type HudElement = 'project' | 'context' | 'usage' | 'tokens' | 'environment' | 'tools' | 'agents' | 'todos';
+export type HudElement = 'project' | 'context' | 'usage' | 'tokens' | 'environment' | 'connectivity' | 'tools' | 'agents' | 'todos';
 export type HudColorName = 'dim' | 'red' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'brightBlue' | 'brightMagenta';
 export type HudColorValue = HudColorName | number | string;
 
@@ -24,7 +24,7 @@ export interface HudColorOverrides {
 }
 
 export const DEFAULT_ELEMENT_ORDER: HudElement[] = [
-  'project', 'context', 'usage', 'tokens', 'environment', 'tools', 'agents', 'todos',
+  'project', 'context', 'usage', 'tokens', 'environment', 'connectivity', 'tools', 'agents', 'todos',
 ];
 
 const KNOWN_ELEMENTS = new Set<HudElement>(DEFAULT_ELEMENT_ORDER);
@@ -47,6 +47,7 @@ export interface HudConfig {
     showLinesChanged: boolean;
     showProject: boolean;
     showContextBar: boolean;
+    showCompactLine: boolean;
     contextValue: ContextValueMode;
     showConfigCounts: boolean;
     showDuration: boolean;
@@ -60,6 +61,10 @@ export interface HudConfig {
     showSessionName: boolean;
     showClaudeCodeVersion: boolean;
     showTokens: boolean;
+    showConnectivity: boolean;
+    connectivityUrl: string;
+    ipdataApiKey: string;
+    ipdataBaseUrl: string;
     customLine: string;
     autocompactBuffer: AutocompactBufferMode;
     usageThreshold: number;
@@ -81,6 +86,7 @@ export const DEFAULT_CONFIG: HudConfig = {
     showLinesChanged: false,
     showProject: true,
     showContextBar: true,
+    showCompactLine: true,
     contextValue: 'percent',
     showConfigCounts: false,
     showDuration: false,
@@ -94,6 +100,10 @@ export const DEFAULT_CONFIG: HudConfig = {
     showSessionName: false,
     showClaudeCodeVersion: false,
     showTokens: false,
+    showConnectivity: false,
+    connectivityUrl: 'https://api.anthropic.com/cdn-cgi/trace',
+    ipdataApiKey: '',
+    ipdataBaseUrl: 'https://api.ipdata.co',
     customLine: '',
     autocompactBuffer: 'enabled',
     usageThreshold: 0,
@@ -205,6 +215,7 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
       showLinesChanged: bool(c.display?.showLinesChanged, DEFAULT_CONFIG.display.showLinesChanged),
       showProject: bool(c.display?.showProject, DEFAULT_CONFIG.display.showProject),
       showContextBar: bool(c.display?.showContextBar, DEFAULT_CONFIG.display.showContextBar),
+      showCompactLine: bool(c.display?.showCompactLine, DEFAULT_CONFIG.display.showCompactLine),
       contextValue: validateContextValue(c.display?.contextValue) ? c.display!.contextValue : DEFAULT_CONFIG.display.contextValue,
       showConfigCounts: bool(c.display?.showConfigCounts, DEFAULT_CONFIG.display.showConfigCounts),
       showDuration: bool(c.display?.showDuration, DEFAULT_CONFIG.display.showDuration),
@@ -218,6 +229,10 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
       showSessionName: bool(c.display?.showSessionName, DEFAULT_CONFIG.display.showSessionName),
       showClaudeCodeVersion: bool(c.display?.showClaudeCodeVersion, DEFAULT_CONFIG.display.showClaudeCodeVersion),
       showTokens: bool(c.display?.showTokens, DEFAULT_CONFIG.display.showTokens),
+      showConnectivity: bool(c.display?.showConnectivity, DEFAULT_CONFIG.display.showConnectivity),
+      connectivityUrl: typeof c.display?.connectivityUrl === 'string' && /^https?:\/\//.test(c.display.connectivityUrl) ? c.display.connectivityUrl : DEFAULT_CONFIG.display.connectivityUrl,
+      ipdataApiKey: typeof c.display?.ipdataApiKey === 'string' ? c.display.ipdataApiKey.trim() : DEFAULT_CONFIG.display.ipdataApiKey,
+      ipdataBaseUrl: typeof c.display?.ipdataBaseUrl === 'string' && /^https?:\/\//.test(c.display.ipdataBaseUrl) ? c.display.ipdataBaseUrl : DEFAULT_CONFIG.display.ipdataBaseUrl,
       customLine: typeof c.display?.customLine === 'string' ? c.display.customLine.slice(0, 80) : DEFAULT_CONFIG.display.customLine,
       autocompactBuffer: validateAutocompact(c.display?.autocompactBuffer) ? c.display!.autocompactBuffer : DEFAULT_CONFIG.display.autocompactBuffer,
       usageThreshold: typeof c.display?.usageThreshold === 'number' ? threshold(c.display.usageThreshold) : DEFAULT_CONFIG.display.usageThreshold,
@@ -240,13 +255,32 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
   };
 }
 
-export async function loadConfig(): Promise<HudConfig> {
-  const configPath = getConfigPath();
-  try {
-    if (!fs.existsSync(configPath)) return DEFAULT_CONFIG;
-    const content = fs.readFileSync(configPath, 'utf-8');
-    return mergeConfig(JSON.parse(content) as Partial<HudConfig>);
-  } catch {
-    return DEFAULT_CONFIG;
+function readRawConfig(p: string): Partial<HudConfig> | null {
+  try { return JSON.parse(fs.readFileSync(p, 'utf-8')) as Partial<HudConfig>; } catch { return null; }
+}
+
+/** Shallow-merge `over` onto `base`, with a one-level merge of the nested
+ * display/colors/gitStatus objects so a local override can set a single key. */
+function overlayConfig(base: Partial<HudConfig>, over: Partial<HudConfig>): Partial<HudConfig> {
+  const out: any = { ...base, ...over };
+  for (const k of ['display', 'colors', 'gitStatus'] as const) {
+    if (base[k] || over[k]) out[k] = { ...(base[k] as object ?? {}), ...(over[k] as object ?? {}) };
   }
+  return out;
+}
+
+export async function loadConfig(): Promise<HudConfig> {
+  const dir = path.dirname(getConfigPath());
+  // config.json holds shareable prefs; config.local.json (gitignored) holds
+  // machine-specific overrides and secrets and wins on conflict.
+  const base = readRawConfig(path.join(dir, 'config.json'));
+  const local = readRawConfig(path.join(dir, 'config.local.json'));
+  const cfg = mergeConfig(base || local ? overlayConfig(base ?? {}, local ?? {}) : {});
+
+  // Secret fallback: never require the key to live in a committed file.
+  if (!cfg.display.ipdataApiKey) {
+    const env = process.env.IPDATA_API_KEY?.trim();
+    if (env) cfg.display.ipdataApiKey = env;
+  }
+  return cfg;
 }

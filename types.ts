@@ -1,5 +1,6 @@
 import type { HudConfig } from './config.ts';
 import type { GitStatus } from './git.ts';
+import type { ConnectivityInfo } from './connectivity.ts';
 
 export interface StdinData {
   transcript_path?: string;
@@ -117,6 +118,22 @@ export interface WorkflowEntry {
   outputTokensPerSec?: number | null;
 }
 
+export interface CompactionInfo {
+  /** Total compact_boundary records seen in this session's transcript. */
+  count: number;
+  /** trigger of the most recent compaction: 'auto' | 'manual' | 'refusal'. */
+  lastTrigger?: string;
+  lastPreTokens?: number;
+  lastPostTokens?: number;
+  lastTime?: Date;
+  /**
+   * preTokens of the most recent trigger:"auto" boundary — the empirically
+   * observed auto-compact line for this session. Beats any estimate derived
+   * from settings because it reflects the threshold the CLI actually used.
+   */
+  lastAutoPreTokens?: number;
+}
+
 export interface TodoItem {
   content: string;
   status: 'pending' | 'in_progress' | 'completed';
@@ -143,6 +160,7 @@ export interface TranscriptData {
   outputTokensPerSec?: number | null;
   inputTokensPerSec?: number | null;
   activeDurationMs?: number | null;
+  compactions?: CompactionInfo;
 }
 
 export interface RenderContext {
@@ -158,4 +176,8 @@ export interface RenderContext {
   config: HudConfig;
   extraLabel: string | null;
   claudeCodeVersion?: string;
+  /** Auto-compact window configured via env/settings, in tokens (null when unset). */
+  autoCompactWindow?: number | null;
+  /** Cached connectivity result, or null when disabled/never checked. */
+  connectivity?: ConnectivityInfo | null;
 }

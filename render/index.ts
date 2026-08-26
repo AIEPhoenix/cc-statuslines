@@ -8,6 +8,7 @@ import { renderTodosLine } from './todos.ts';
 import { renderIdentityLine } from './identity.ts';
 import { renderProjectLine } from './project.ts';
 import { renderEnvironmentLine } from './environment.ts';
+import { renderConnectivityLine } from './connectivity.ts';
 import { renderUsageLine } from './usage.ts';
 import { renderTokensLine } from './tokens.ts';
 import { dim, RESET } from './colors.ts';
@@ -168,6 +169,7 @@ function renderElementLine(ctx: RenderContext, element: HudElement): string | nu
     case 'usage': return renderUsageLine(ctx);
     case 'tokens': return ctx.config?.display?.showTokens === false ? null : renderTokensLine(ctx);
     case 'environment': return renderEnvironmentLine(ctx);
+    case 'connectivity': return renderConnectivityLine(ctx);
     case 'tools': return d?.showTools === false ? null : renderToolsLine(ctx);
     case 'agents': return d?.showAgents === false ? null : renderAgentsLine(ctx);
     case 'todos': return d?.showTodos === false ? null : renderTodosLine(ctx);
