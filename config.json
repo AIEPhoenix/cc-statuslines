@@ -17,7 +17,8 @@
     "showSessionName": true,
     "showTokens": true,
     "showEffort": true,
-    "showLinesChanged": true
+    "showLinesChanged": true,
+    "showConnectivity": true
   },
   "gitStatus": {
     "enabled": true,

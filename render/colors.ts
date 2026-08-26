@@ -76,9 +76,21 @@ export function quotaBar(percent: number, width = 10, colors?: Partial<HudColorO
   return `${getQuotaColor(p, colors)}${'█'.repeat(filled)}${BAR_TRACK}${'░'.repeat(w - filled)}${RESET}`;
 }
 
-export function coloredBar(percent: number, width = 10, colors?: Partial<HudColorOverrides>): string {
+export function coloredBar(percent: number, width = 10, colors?: Partial<HudColorOverrides>, markerPercent?: number | null): string {
   const w = Number.isFinite(width) ? Math.max(0, Math.round(width)) : 0;
   const p = Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
   const filled = Math.round((p / 100) * w);
-  return `${getContextColor(p, colors)}${'█'.repeat(filled)}${BAR_TRACK}${'░'.repeat(w - filled)}${RESET}`;
+  const fillColor = getContextColor(p, colors);
+  // Tick mark (e.g. the auto-compact line) drawn over whichever cell it lands on.
+  if (typeof markerPercent === 'number' && Number.isFinite(markerPercent) && markerPercent > 0 && markerPercent < 100 && w > 0) {
+    const idx = Math.min(w - 1, Math.floor((markerPercent / 100) * w));
+    const seg = (s: string, color: string) => (s ? `${color}${s}` : '');
+    return seg('█'.repeat(Math.min(filled, idx)), fillColor)
+      + seg('░'.repeat(Math.max(0, idx - filled)), BAR_TRACK)
+      + `${resolveAnsi(colors?.warning, YELLOW)}┊`
+      + seg('█'.repeat(Math.max(0, filled - idx - 1)), fillColor)
+      + seg('░'.repeat(w - Math.max(filled, idx + 1)), BAR_TRACK)
+      + RESET;
+  }
+  return `${fillColor}${'█'.repeat(filled)}${BAR_TRACK}${'░'.repeat(w - filled)}${RESET}`;
 }

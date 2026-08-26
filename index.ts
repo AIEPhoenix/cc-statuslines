@@ -1,4 +1,6 @@
 import { readStdin, getUsageFromStdin } from './stdin.ts';
+import { readAutoCompactWindow } from './compact-line.ts';
+import { readConnectivity, scheduleRefresh } from './connectivity.ts';
 import { parseTranscript } from './transcript.ts';
 import { render } from './render/index.ts';
 import { countConfigs } from './config-reader.ts';
@@ -27,6 +29,15 @@ async function main(): Promise<void> {
     let usageData: RenderContext['usageData'] = null;
     if (config.display.showUsage !== false) {
       usageData = getUsageFromStdin(stdin);
+    }
+
+    // Connectivity is fully async: read the cached result for this frame and,
+    // if it's stale, kick off a detached background refresh that this process
+    // does not wait on. The render path never touches the network.
+    let connectivity: RenderContext['connectivity'] = null;
+    if (config.display.showConnectivity) {
+      connectivity = readConnectivity();
+      scheduleRefresh();
     }
 
     // Prefer the session name Claude Code provides directly (set via /rename or --name);
@@ -60,6 +71,8 @@ async function main(): Promise<void> {
       config,
       extraLabel: null,
       claudeCodeVersion,
+      autoCompactWindow: config.display.showCompactLine ? readAutoCompactWindow(stdin.cwd) : null,
+      connectivity,
     };
 
     render(ctx);

@@ -4,12 +4,13 @@ import * as path from 'node:path';
 import * as readline from 'readline';
 import { createHash } from 'node:crypto';
 import { getHudDir } from './config.ts';
-import type { TranscriptData, ToolEntry, AgentEntry, TodoItem, WorkflowEntry } from './types.ts';
+import type { TranscriptData, ToolEntry, AgentEntry, TodoItem, WorkflowEntry, CompactionInfo } from './types.ts';
 import { collectSpeed, outputTokensPerSec, inputTokensPerSec } from './speed-metrics.ts';
 
 interface TranscriptLine {
   timestamp?: string;
   type?: string;
+  subtype?: string;
   slug?: string;
   customTitle?: string;
   aiTitle?: string;
@@ -19,6 +20,8 @@ interface TranscriptLine {
   content?: string;
   // toolUseResult on tool_result entries
   toolUseResult?: ToolUseResult;
+  // system/compact_boundary entries
+  compactMetadata?: { trigger?: string; preTokens?: number; postTokens?: number };
 }
 
 interface ToolUseResult {
@@ -50,7 +53,8 @@ interface TranscriptFileState { mtimeMs: number; size: number; }
 interface SerializedToolEntry extends Omit<ToolEntry, 'startTime' | 'endTime'> { startTime: string; endTime?: string; }
 interface SerializedAgentEntry extends Omit<AgentEntry, 'startTime' | 'endTime'> { startTime: string; endTime?: string; }
 interface SerializedWorkflowEntry extends Omit<WorkflowEntry, 'startTime' | 'endTime'> { startTime?: string; endTime?: string; }
-interface SerializedTranscriptData { tools: SerializedToolEntry[]; agents: SerializedAgentEntry[]; workflows?: SerializedWorkflowEntry[]; todos: TodoItem[]; sessionStart?: string; sessionName?: string; outputTokensPerSec?: number | null; inputTokensPerSec?: number | null; activeDurationMs?: number | null; }
+interface SerializedCompactionInfo extends Omit<CompactionInfo, 'lastTime'> { lastTime?: string; }
+interface SerializedTranscriptData { tools: SerializedToolEntry[]; agents: SerializedAgentEntry[]; workflows?: SerializedWorkflowEntry[]; todos: TodoItem[]; sessionStart?: string; sessionName?: string; outputTokensPerSec?: number | null; inputTokensPerSec?: number | null; activeDurationMs?: number | null; compactions?: SerializedCompactionInfo; }
 interface TranscriptCacheFile { transcriptPath: string; transcriptState: TranscriptFileState; data: SerializedTranscriptData; }
 
 function getCachePath(transcriptPath: string): string {
@@ -73,6 +77,7 @@ function serialize(data: TranscriptData): SerializedTranscriptData {
     outputTokensPerSec: data.outputTokensPerSec ?? null,
     inputTokensPerSec: data.inputTokensPerSec ?? null,
     activeDurationMs: data.activeDurationMs ?? null,
+    compactions: data.compactions ? { ...data.compactions, lastTime: data.compactions.lastTime?.toISOString() } : undefined,
   };
 }
 
@@ -87,6 +92,7 @@ function deserialize(data: SerializedTranscriptData): TranscriptData {
     outputTokensPerSec: data.outputTokensPerSec ?? null,
     inputTokensPerSec: data.inputTokensPerSec ?? null,
     activeDurationMs: data.activeDurationMs ?? null,
+    compactions: data.compactions ? { ...data.compactions, lastTime: data.compactions.lastTime ? new Date(data.compactions.lastTime) : undefined } : undefined,
   };
 }
 
@@ -330,6 +336,21 @@ function processEntry(
 ): void {
   const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();
   if (!result.sessionStart && entry.timestamp) result.sessionStart = timestamp;
+
+  // Compaction boundary: the CLI writes one system record per compaction with
+  // pre/post token counts. trigger:"auto" boundaries reveal the actual
+  // auto-compact line, which the context bar uses to place its marker.
+  if (entry.type === 'system' && entry.subtype === 'compact_boundary') {
+    const cm = entry.compactMetadata;
+    const info = result.compactions ?? (result.compactions = { count: 0 });
+    info.count++;
+    info.lastTime = timestamp;
+    if (typeof cm?.trigger === 'string') info.lastTrigger = cm.trigger;
+    if (typeof cm?.preTokens === 'number') info.lastPreTokens = cm.preTokens;
+    if (typeof cm?.postTokens === 'number') info.lastPostTokens = cm.postTokens;
+    if (cm?.trigger === 'auto' && typeof cm.preTokens === 'number') info.lastAutoPreTokens = cm.preTokens;
+    return;
+  }
 
   // Handle queue-operation: async agent terminal notification (completed | killed | failed).
   if (entry.type === 'queue-operation' && entry.operation === 'enqueue' && typeof entry.content === 'string') {
