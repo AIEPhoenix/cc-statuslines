@@ -12,9 +12,9 @@ const ctx = (tools: ToolEntry[]): RenderContext => ({
 const running = (name: string, target: string): ToolEntry => ({ id: name, name, target, status: 'running', startTime: new Date() });
 
 test('a Bash command is cut from the end, not treated as a path', () => {
-  expect(strip(renderToolsLine(ctx([running('Bash', 'cd /Users/brian/Desktop/lab/x && ls')])))).toBe('◐ Bash: cd /Users/brian/D...');
+  expect(strip(renderToolsLine(ctx([running('Bash', 'cd /home/dev/projects/x && ls')])))).toBe('◐ Bash: cd /home/dev/proj...');
 });
 
 test('file tools keep the filename', () => {
-  expect(strip(renderToolsLine(ctx([running('Edit', '/Users/brian/Desktop/lab/ai-react-markdown/src/index.ts')])))).toBe('◐ Edit: .../index.ts');
+  expect(strip(renderToolsLine(ctx([running('Edit', '/home/dev/projects/app/src/index.ts')])))).toBe('◐ Edit: .../index.ts');
 });

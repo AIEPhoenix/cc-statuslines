@@ -1,6 +1,7 @@
 import type { RenderContext } from '../types.ts';
 import { label, project as projectColor, custom as customColor, dim, white, italic, RESET } from './colors.ts';
 import { buildGitSegment, buildAgentNameSegment, buildPermissionSegment } from './segments.ts';
+import { stripControl } from '../utils/text.ts';
 
 const DIM = '\x1b[2m';
 const VALUE = '\x1b[38;5;251m';
@@ -37,7 +38,7 @@ export function renderProjectLine(ctx: RenderContext): string | null {
   }
 
   if (display?.showSessionName && ctx.transcript.sessionName) {
-    parts.push(italic(white(ctx.transcript.sessionName)));
+    parts.push(italic(white(stripControl(ctx.transcript.sessionName))));
   }
 
   const agentPart = buildAgentNameSegment(ctx);

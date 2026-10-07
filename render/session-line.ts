@@ -4,6 +4,7 @@ import { getContextPercent, getBufferedPercent, getProviderLabel, getTotalTokens
 import { coloredBar, critical, label, project as projectColor, getContextColor, getQuotaColor, quotaBar, custom as customColor, italic, RESET } from './colors.ts';
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
 import { buildModelSegment, buildGitSegment, buildLinesChangedSegment, buildAgentNameSegment, buildPermissionSegment } from './segments.ts';
+import { stripControl } from '../utils/text.ts';
 import { renderCachePart } from './cache.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold, same as the expanded layout
@@ -60,7 +61,7 @@ export function renderSessionLine(ctx: RenderContext): string {
 
   // Session name
   if (display?.showSessionName && ctx.transcript.sessionName) {
-    parts.push(italic(label(ctx.transcript.sessionName, colors)));
+    parts.push(italic(label(stripControl(ctx.transcript.sessionName), colors)));
   }
 
   const agentPart = buildAgentNameSegment(ctx);

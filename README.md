@@ -1,6 +1,6 @@
 # Claude Code HUD
 
-A custom status line for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), built with TypeScript and runs directly with [Bun](https://bun.sh). Forked from [claude-hud](https://github.com/jarrodwatts/claude-hud) and enhanced with features from [ccstatusline](https://github.com/sirmalloc/ccstatusline).
+A custom status line for [Claude Code](https://code.claude.com/docs/en/overview), written in TypeScript and run straight from source by [Bun](https://bun.sh) — no build step. Forked from [claude-hud](https://github.com/jarrodwatts/claude-hud) and enhanced with features from [ccstatusline](https://github.com/sirmalloc/ccstatusline).
 
 ## Preview
 
@@ -19,7 +19,7 @@ v2.1.293 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Fable 5 | high·thin
 
 ## Requirements
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+- [Claude Code](https://code.claude.com/docs/en/overview) CLI (≥2.1.150 for `refreshInterval`; the cache, spend and badge fields need ≥2.1.251, see the toggles table)
 - [Bun](https://bun.sh) runtime (`brew install oven-sh/bun/bun` or see https://bun.sh)
 
 ## Installation
@@ -27,7 +27,7 @@ v2.1.293 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Fable 5 | high·thin
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url> ~/.claude/hud
+git clone https://github.com/AIEPhoenix/cc-statuslines.git ~/.claude/hud
 ```
 
 Or copy files manually to `~/.claude/hud/`.
@@ -35,13 +35,16 @@ Or copy files manually to `~/.claude/hud/`.
 ### 2. Test it works
 
 ```bash
-echo '{}' | bun --env-file /dev/null ~/.claude/hud/index.ts
+bun --env-file /dev/null ~/.claude/hud/index.ts < /dev/null
 ```
 
-You should see:
+With no input the HUD prints:
 ```
 [hud] Initializing...
 ```
+
+To see a real render, pipe in any status line JSON — for example the sample
+from the [status line docs](https://code.claude.com/docs/en/statusline).
 
 ### 3. Configure Claude Code
 
@@ -70,7 +73,8 @@ Or if you have `CLAUDE_CONFIG_DIR` set:
 ```
 
 `refreshInterval` (Claude Code ≥2.1.150) re-runs the HUD every N seconds, so the session
-duration and running agent timers tick in real time instead of only updating on new messages.
+duration, agent timers and the prompt-cache countdown tick in real time instead of only
+updating on new messages.
 
 ### 3b. (Optional) Per-subagent rows in the agent panel
 
@@ -125,7 +129,9 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
     "showTools": true,
     "showAgents": true,
     "showTodos": true,
-    "showTokens": true
+    "showTokens": true,
+    "showClaudeCodeVersion": true,
+    "showConnectivity": true
   },
   "gitStatus": {
     "enabled": true,
@@ -213,6 +219,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 #### Colors
 
 All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"magenta"`, `"cyan"`, `"brightBlue"`, `"brightMagenta"`), 256-color indices (0-255), or hex strings (`"#rrggbb"`).
+The palette follows one rule: one hue, one meaning — green/yellow/red are state, purple is "which brain" (model and agent types), gray is chrome. Defaults:
 
 ```json
 {
@@ -222,15 +229,17 @@ All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"mag
     "warning": "yellow",
     "usageWarning": "brightMagenta",
     "critical": "red",
-    "model": "cyan",
+    "model": "magenta",
     "project": "yellow",
-    "git": "magenta",
-    "gitBranch": "cyan",
+    "git": 243,
+    "gitBranch": 146,
     "label": "dim",
     "custom": 208
   }
 }
 ```
+
+`warning` and `critical` also color the cache dot (amber near expiry / cold) and the `⚑ auto` / `⚑ bypass` badges.
 
 ## What each line shows
 
@@ -240,8 +249,9 @@ Line 2 (Context):    Context ███┊█░░░░░ 48% 1M ac@360k ×1  
 Line 3 (Tokens):     $12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
 Line 4 (Cache):      Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)
 Line 5 (Env):        v2.1.293 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Model | effort·think | ⚡fast]
-Line 6 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
-Line 7+ (Agents):    ◐ Explore: Researching docs (15s)
+Line 6 (Net):        Net ● 1.2.3.4 · US · LAX · clean            (showConnectivity only)
+Line 7 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
+Line 8+ (Agents):    ◐ Explore: Researching docs (15s)
                      ✓ oracle: Code review (58s)
                      ◐ wf:review-sweep [fable 5] (7/12 agents | 1m 02s | 26k | 419 tok/s) $3.10
 Line N (Todos):      ▸ Implement feature (3/7)
@@ -250,9 +260,12 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | Symbol | Meaning |
 |--------|---------|
 | `◐` | Running (tool/agent in progress) |
-| `●` / `○` | Prompt cache warm / cold (or not observed) |
-| `⚑` | Permission mode other than default |
 | `✓` | Completed |
+| `⏸` | Idle teammate (resumable; dimmed with `· stale` after 10 min) |
+| `✗` | Agent stopped or failed |
+| `┊` | Observed auto-compact line on the context bar |
+| `●` / `○` | Prompt cache warm / cold (or not observed); on the Net line, live / stale |
+| `⚑` | Permission mode other than default |
 | `▸` | Current task in progress |
 | `↑` / `↓` | Input / output token speed |
 
@@ -275,12 +288,14 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | **Workflow fleets** | Workflow runs aggregate to one line: `◐ wf:name [model] (7/12 agents \| 1m \| 26k \| 419 tok/s) $3.10` |
 | **Session name** | From stdin `session_name` (`/rename`), falling back to the transcript `ai-title` |
 | **Token stats line** | Input, output, cache token counts + input/output speed |
-| **CC version** | Claude Code version number on token line (from stdin, zero subprocess) |
+| **CC version** | Claude Code version number leads the env line (from stdin, zero subprocess) |
 | **Real-time agent status** | Detects running/completed agents via transcript lifecycle analysis |
 | **Background agent detection** | Uses `queue-operation` events to track async agent completion |
 | **Agent type enrichment** | Reads `subagents/*.meta.json` for accurate agent type labels |
 | **Cache safety** | Skips transcript cache when agents are running to prevent stale state |
 | **Cache hygiene** | Prunes transcript-cache entries older than 14 days (throttled to once a day) |
+| **Connectivity + IP risk** | `Net ● ip · loc · colo · ⚠ VPN` — exit IP as Anthropic's edge sees it, with an optional ipdata.co reputation badge; checked off the render path |
+| **Terminal-safe output** | Every string that originates outside the HUD (agent descriptions and names, tool targets, todo text, session titles, subagent payloads) is stripped of control and format characters before it is drawn, so a crafted description cannot inject escape sequences |
 
 ## Architecture
 
@@ -289,22 +304,29 @@ Claude Code
     ↓ (JSON via stdin)
 index.ts                    ← Entry point (statusLine)
 subagent-line.ts            ← Second entry point (subagentStatusLine): agent-panel rows
-    ├── stdin.ts            ← Parse stdin (model, context, usage, cost)
-    ├── transcript.ts       ← Parse transcript JSONL (tools, agents, todos)
-    ├── config-reader.ts    ← Count CLAUDE.md, rules, MCPs, hooks
+    ├── stdin.ts            ← Parse stdin (model, context, usage, spend, permission mode)
+    ├── transcript.ts       ← Parse transcript JSONL (tools, agents, workflows, todos, compactions)
+    ├── speed-metrics.ts    ← Transcript-derived token speed and active duration
+    ├── compact-line.ts     ← Auto-compact line: observed from compactions or configured window
+    ├── config-reader.ts    ← Count CLAUDE.md (cwd + ancestors), rules, MCPs, hooks
     ├── git.ts              ← Git branch, dirty, ahead/behind
-    ├── speed-metrics.ts    ← Transcript-derived token speed
+    ├── connectivity.ts     ← Cached trace + ipdata result; spawns connectivity-refresh.ts
+    ├── config.ts           ← config.json + config.local.json overlay, validation, defaults
+    ├── utils/
+    │   ├── terminal.ts     ← Adaptive bar width
+    │   └── text.ts         ← stripControl: terminal-safe external strings
     └── render/
-        ├── index.ts        ← Layout orchestration + line wrapping
-        ├── segments.ts     ← Shared segments: model+effort, git+worktree+PR, lines changed
-        ├── project.ts      ← Line 1: model, project, git, duration, cost
-        ├── identity.ts     ← Line 2L: context bar
-        ├── usage.ts        ← Line 2R: rate limit usage
+        ├── index.ts        ← Layout orchestration, width-aware wrapping/truncation
+        ├── segments.ts     ← Shared segments: model+effort+fast, git+worktree+PR/MR, permission badge, lines changed
+        ├── project.ts      ← Line 1: project, git, session name, badge, duration
+        ├── identity.ts     ← Line 2L: context bar + auto-compact marker
+        ├── usage.ts        ← Line 2R: rate limits + spend cap
         ├── tokens.ts       ← Line 3: cost, token counts, speed
         ├── cache.ts        ← Line 4: prompt-cache health (expanded line + compact part)
-        ├── environment.ts  ← Line 5: config counts
+        ├── environment.ts  ← Line 5: CC version, config counts, model bracket
+        ├── connectivity.ts ← Line 6: Net line with IP risk badge
         ├── tools.ts        ← Tools activity
-        ├── agents.ts       ← Agent status
+        ├── agents.ts       ← Agent status + workflow fleets
         ├── todos.ts        ← Task progress
         ├── session-line.ts ← Compact mode (all-in-one)
         └── colors.ts       ← ANSI color system
@@ -329,7 +351,13 @@ subagent-line.ts            ← Second entry point (subagentStatusLine): agent-p
 - **`showPermissionMode` reads `permission_mode` from stdin**, a field present in
   current builds but not (yet) in the published status line docs. Older CLIs
   simply never show the badge.
+- **The HUD runs from source on every refresh.** A syntax error in any file
+  blanks the status line until it is fixed; `main()`'s try/catch only catches
+  runtime errors. Run `bun test` and a manual render before trusting an edit.
+- **`subagentLineColors` is off because the panel's ANSI handling is unverified.**
+  Turn it on, look at the agent panel, and turn it back off if rows show raw
+  escape codes.
 
 ## License
 
-MIT
+[MIT](./LICENSE)

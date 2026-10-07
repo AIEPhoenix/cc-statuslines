@@ -1,6 +1,7 @@
 import type { RenderContext } from '../types.ts';
 import { yellow, green, white, label, dim } from './colors.ts';
 import { buildLinesChangedSegment } from './segments.ts';
+import { stripControl } from '../utils/text.ts';
 
 export function renderToolsLine(ctx: RenderContext): string | null {
   const { tools } = ctx.transcript;
@@ -10,14 +11,15 @@ export function renderToolsLine(ctx: RenderContext): string | null {
   const completed = tools.filter(t => t.status === 'completed' || t.status === 'error');
 
   for (const tool of running.slice(-2)) {
-    const target = tool.target ? truncTarget(tool.name, tool.target) : '';
-    parts.push(`${yellow('◐')} ${white(tool.name)}${target ? label(`: ${target}`, colors) : ''}`);
+    // A target is a model-written file path, query or command line.
+    const target = tool.target ? truncTarget(tool.name, stripControl(tool.target)) : '';
+    parts.push(`${yellow('◐')} ${white(stripControl(tool.name))}${target ? label(`: ${target}`, colors) : ''}`);
   }
 
   const counts = new Map<string, number>();
   for (const t of completed) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
   for (const [name, count] of Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4)) {
-    parts.push(`${green('✓')} ${white(name)} ${label(`×${count}`, colors)}`);
+    parts.push(`${green('✓')} ${white(stripControl(name))} ${label(`×${count}`, colors)}`);
   }
 
   const lines = buildLinesChangedSegment(ctx);
