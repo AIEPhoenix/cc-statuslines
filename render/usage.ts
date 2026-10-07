@@ -1,4 +1,4 @@
-import type { RenderContext } from '../types.ts';
+import type { RenderContext, SpendLimitData } from '../types.ts';
 import { isLimitReached } from '../types.ts';
 import { getProviderLabel } from '../stdin.ts';
 import { critical, label, getQuotaColor, quotaBar, RESET } from './colors.ts';
@@ -10,29 +10,53 @@ export function renderUsageLine(ctx: RenderContext): string | null {
   if (display?.showUsage === false || !ctx.usageData || getProviderLabel(ctx.stdin)) return null;
 
   const usageLabel = label('Usage', colors);
+  const { fiveHour, sevenDay, spend } = ctx.usageData;
   if (isLimitReached(ctx.usageData)) {
-    const resetTime = ctx.usageData.fiveHour === 100 ? fmtReset(ctx.usageData.fiveHourResetAt) : fmtReset(ctx.usageData.sevenDayResetAt);
+    const resetTime = fiveHour === 100 ? fmtReset(ctx.usageData.fiveHourResetAt)
+      : sevenDay === 100 ? fmtReset(ctx.usageData.sevenDayResetAt)
+      : fmtReset(spend?.resetAt ?? null);
     return `${usageLabel} ${critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors)}`;
   }
 
   const threshold = display?.usageThreshold ?? 0;
-  const { fiveHour, sevenDay } = ctx.usageData;
-  if (Math.max(fiveHour ?? 0, sevenDay ?? 0) < threshold) return null;
+  if (Math.max(fiveHour ?? 0, sevenDay ?? 0, spend?.percent ?? 0) < threshold) return null;
 
   const usageBarEnabled = display?.usageBarEnabled ?? true;
   const barWidth = getAdaptiveBarWidth();
+  // Gateway spend cap: `$314/$500 63% (monthly · resets 3d)`. Shown whenever
+  // present — a gateway user typically has no 5h/7d windows at all.
+  const spendPart = spend ? fmtSpend(spend, colors, usageBarEnabled, barWidth) : null;
 
+  if (fiveHour === null && sevenDay === null) {
+    return spendPart ? `${usageLabel} ${spendPart}` : null;
+  }
+
+  let body: string;
   if (fiveHour === null && sevenDay !== null) {
-    return `${usageLabel} ${fmtWindow({ l: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth, forceLabel: true })}`;
+    body = fmtWindow({ l: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth, forceLabel: true });
+  } else {
+    body = fmtWindow({ l: '5h', percent: fiveHour, resetAt: ctx.usageData.fiveHourResetAt, colors, usageBarEnabled, barWidth });
+    const sdThreshold = display?.sevenDayThreshold ?? 80;
+    if (sevenDay !== null && sevenDay >= sdThreshold) {
+      body += ` | ${fmtWindow({ l: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth })}`;
+    }
   }
+  if (spendPart) body += ` | ${spendPart}`;
+  return `${usageLabel} ${body}`;
+}
 
-  const fhPart = fmtWindow({ l: '5h', percent: fiveHour, resetAt: ctx.usageData.fiveHourResetAt, colors, usageBarEnabled, barWidth });
-  const sdThreshold = display?.sevenDayThreshold ?? 80;
-  if (sevenDay !== null && sevenDay >= sdThreshold) {
-    const sdPart = fmtWindow({ l: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth });
-    return `${usageLabel} ${fhPart} | ${sdPart}`;
-  }
-  return `${usageLabel} ${fhPart}`;
+function fmtSpend(spend: SpendLimitData, colors: RenderContext['config']['colors'] | undefined, usageBarEnabled: boolean, barWidth: number): string {
+  const pct = fmtPercent(spend.percent, colors);
+  const dollars = spend.usedUsd !== null && spend.limitUsd !== null ? `${fmtUsd(spend.usedUsd)}/${fmtUsd(spend.limitUsd)} ` : '';
+  const reset = fmtReset(spend.resetAt);
+  const notes = [spend.period, reset ? `resets ${reset}` : ''].filter(Boolean).join(' · ');
+  const tail = notes ? ` ${label(`(${notes})`, colors)}` : '';
+  const bar = usageBarEnabled ? `${quotaBar(spend.percent, barWidth, colors)} ` : '';
+  return `${label('spend', colors)} ${bar}${dollars}${pct}${tail}`;
+}
+
+function fmtUsd(n: number): string {
+  return n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2).replace(/\.00$/, '')}`;
 }
 
 function fmtPercent(p: number | null, colors?: RenderContext['config']['colors']): string {

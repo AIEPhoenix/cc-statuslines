@@ -1,6 +1,6 @@
 import type { RenderContext } from '../types.ts';
 import { label, project as projectColor, custom as customColor, dim, white, italic, RESET } from './colors.ts';
-import { buildGitSegment, buildAgentNameSegment } from './segments.ts';
+import { buildGitSegment, buildAgentNameSegment, buildPermissionSegment } from './segments.ts';
 
 const DIM = '\x1b[2m';
 const VALUE = '\x1b[38;5;251m';
@@ -42,6 +42,9 @@ export function renderProjectLine(ctx: RenderContext): string | null {
 
   const agentPart = buildAgentNameSegment(ctx);
   if (agentPart) parts.push(agentPart);
+
+  const permissionPart = buildPermissionSegment(ctx);
+  if (permissionPart) parts.push(permissionPart);
 
   if (ctx.extraLabel) {
     parts.push(label(ctx.extraLabel, colors));

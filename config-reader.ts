@@ -63,6 +63,37 @@ function samePath(a: string, b: string): boolean {
   try { return normPath(fs.realpathSync.native(a)) === normPath(fs.realpathSync.native(b)); } catch { return false; }
 }
 
+/**
+ * Claude Code loads CLAUDE.md from cwd and every directory above it, up to the
+ * filesystem root. Count the same way, so a repo-level CLAUDE.md in a parent of a
+ * monorepo package (or a global one in the user's home) is included.
+ * A directory whose `.claude` is the Claude config dir is skipped there: that
+ * file is the user-scope CLAUDE.md the caller already counted.
+ */
+export function countClaudeMdInAncestors(cwd: string, claudeDir: string): number {
+  let count = 0;
+  let dir = path.resolve(cwd);
+  const seen = new Set<string>();
+  while (!seen.has(dir)) {
+    seen.add(dir);
+    // Working inside the config dir itself (~/.claude/hud): its CLAUDE.md is the
+    // user-scope file, already counted by the caller.
+    if (!samePath(dir, claudeDir)) {
+      if (fs.existsSync(path.join(dir, 'CLAUDE.md'))) count++;
+      if (fs.existsSync(path.join(dir, 'CLAUDE.local.md'))) count++;
+    }
+    const dotClaude = path.join(dir, '.claude');
+    if (!samePath(dotClaude, claudeDir)) {
+      if (fs.existsSync(path.join(dotClaude, 'CLAUDE.md'))) count++;
+      if (fs.existsSync(path.join(dotClaude, 'CLAUDE.local.md'))) count++;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return count;
+}
+
 export async function countConfigs(cwd?: string): Promise<ConfigCounts> {
   let claudeMdCount = 0, rulesCount = 0, hooksCount = 0;
   const claudeDir = getClaudeConfigDir();
@@ -84,10 +115,7 @@ export async function countConfigs(cwd?: string): Promise<ConfigCounts> {
   const overlaps = projectClaudeDir ? samePath(projectClaudeDir, claudeDir) : false;
 
   if (cwd) {
-    if (fs.existsSync(path.join(cwd, 'CLAUDE.md'))) claudeMdCount++;
-    if (fs.existsSync(path.join(cwd, 'CLAUDE.local.md'))) claudeMdCount++;
-    if (!overlaps && fs.existsSync(path.join(cwd, '.claude', 'CLAUDE.md'))) claudeMdCount++;
-    if (fs.existsSync(path.join(cwd, '.claude', 'CLAUDE.local.md'))) claudeMdCount++;
+    claudeMdCount += countClaudeMdInAncestors(cwd, claudeDir);
     if (!overlaps) rulesCount += countRulesInDir(path.join(cwd, '.claude', 'rules'));
 
     const mcpJsonServers = getMcpServerNames(path.join(cwd, '.mcp.json'));

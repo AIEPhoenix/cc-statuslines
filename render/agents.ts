@@ -71,7 +71,7 @@ function fmtElapsed(a: AgentEntry): string {
   return fmtElapsedMs((a.endTime?.getTime() ?? Date.now()) - a.startTime.getTime());
 }
 
-function fmtElapsedMs(ms: number): string {
+export function fmtElapsedMs(ms: number): string {
   if (ms < 1000) return '<1s';
   if (ms < 60000) return `${Math.round(ms / 1000)}s`;
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
@@ -83,13 +83,14 @@ function fmtCost(usd: number): string {
 }
 
 /** Compact label from a model ID or alias: "claude-haiku-4-5-20251001" → "haiku 4.5". */
-function fmtModel(m: string): string {
+export function fmtModel(m: string): string {
   const match = m.toLowerCase().match(/(opus|sonnet|haiku|fable)[-_ ]?(\d+(?:[-.]\d+)?)?/);
   if (!match) return m;
   const ver = match[2]?.replace('-', '.');
   return ver ? `${match[1]} ${ver}` : match[1];
 }
 
+export { fmtTokens as fmtAgentTokens };
 function fmtTokens(n: number): string {
   if (n < 1000) return `${n}tok`;
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;

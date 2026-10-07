@@ -11,6 +11,7 @@ import { renderEnvironmentLine } from './environment.ts';
 import { renderConnectivityLine } from './connectivity.ts';
 import { renderUsageLine } from './usage.ts';
 import { renderTokensLine } from './tokens.ts';
+import { renderCacheLine } from './cache.ts';
 import { dim, RESET } from './colors.ts';
 
 // Matches CSI color sequences and OSC 8 hyperlink open/close sequences,
@@ -75,7 +76,7 @@ function graphemeWidth(g: string): number {
   return hasVisible ? width : 0;
 }
 
-function visualLength(str: string): number {
+export function visualLength(str: string): number {
   let w = 0;
   for (const t of splitAnsiTokens(str)) {
     if (t.type === 'ansi') continue;
@@ -84,7 +85,7 @@ function visualLength(str: string): number {
   return w;
 }
 
-function sliceVisible(str: string, max: number): string {
+export function sliceVisible(str: string, max: number): string {
   if (max <= 0) return '';
   let result = '', vw = 0, i = 0;
   while (i < str.length) {
@@ -168,6 +169,7 @@ function renderElementLine(ctx: RenderContext, element: HudElement): string | nu
     case 'context': return renderIdentityLine(ctx);
     case 'usage': return renderUsageLine(ctx);
     case 'tokens': return ctx.config?.display?.showTokens === false ? null : renderTokensLine(ctx);
+    case 'cache': return renderCacheLine(ctx);
     case 'environment': return renderEnvironmentLine(ctx);
     case 'connectivity': return renderConnectivityLine(ctx);
     case 'tools': return d?.showTools === false ? null : renderToolsLine(ctx);

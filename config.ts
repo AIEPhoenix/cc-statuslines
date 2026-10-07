@@ -5,7 +5,7 @@ import * as os from 'node:os';
 export type LineLayoutType = 'compact' | 'expanded';
 export type AutocompactBufferMode = 'enabled' | 'disabled';
 export type ContextValueMode = 'percent' | 'tokens' | 'remaining' | 'both';
-export type HudElement = 'project' | 'context' | 'usage' | 'tokens' | 'environment' | 'connectivity' | 'tools' | 'agents' | 'todos';
+export type HudElement = 'project' | 'context' | 'usage' | 'tokens' | 'cache' | 'environment' | 'connectivity' | 'tools' | 'agents' | 'todos';
 export type HudColorName = 'dim' | 'red' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'brightBlue' | 'brightMagenta';
 export type HudColorValue = HudColorName | number | string;
 
@@ -24,7 +24,7 @@ export interface HudColorOverrides {
 }
 
 export const DEFAULT_ELEMENT_ORDER: HudElement[] = [
-  'project', 'context', 'usage', 'tokens', 'environment', 'connectivity', 'tools', 'agents', 'todos',
+  'project', 'context', 'usage', 'tokens', 'cache', 'environment', 'connectivity', 'tools', 'agents', 'todos',
 ];
 
 const KNOWN_ELEMENTS = new Set<HudElement>(DEFAULT_ELEMENT_ORDER);
@@ -62,6 +62,9 @@ export interface HudConfig {
     showClaudeCodeVersion: boolean;
     showTokens: boolean;
     showConnectivity: boolean;
+    showCache: boolean;
+    showPermissionMode: boolean;
+    subagentLineColors: boolean;
     connectivityUrl: string;
     ipdataApiKey: string;
     ipdataBaseUrl: string;
@@ -101,6 +104,9 @@ export const DEFAULT_CONFIG: HudConfig = {
     showClaudeCodeVersion: false,
     showTokens: false,
     showConnectivity: false,
+    showCache: true,
+    showPermissionMode: true,
+    subagentLineColors: false,
     connectivityUrl: 'https://api.anthropic.com/cdn-cgi/trace',
     ipdataApiKey: '',
     ipdataBaseUrl: 'https://api.ipdata.co',
@@ -230,6 +236,9 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
       showClaudeCodeVersion: bool(c.display?.showClaudeCodeVersion, DEFAULT_CONFIG.display.showClaudeCodeVersion),
       showTokens: bool(c.display?.showTokens, DEFAULT_CONFIG.display.showTokens),
       showConnectivity: bool(c.display?.showConnectivity, DEFAULT_CONFIG.display.showConnectivity),
+      showCache: bool(c.display?.showCache, DEFAULT_CONFIG.display.showCache),
+      showPermissionMode: bool(c.display?.showPermissionMode, DEFAULT_CONFIG.display.showPermissionMode),
+      subagentLineColors: bool(c.display?.subagentLineColors, DEFAULT_CONFIG.display.subagentLineColors),
       connectivityUrl: typeof c.display?.connectivityUrl === 'string' && /^https?:\/\//.test(c.display.connectivityUrl) ? c.display.connectivityUrl : DEFAULT_CONFIG.display.connectivityUrl,
       ipdataApiKey: typeof c.display?.ipdataApiKey === 'string' ? c.display.ipdataApiKey.trim() : DEFAULT_CONFIG.display.ipdataApiKey,
       ipdataBaseUrl: typeof c.display?.ipdataBaseUrl === 'string' && /^https?:\/\//.test(c.display.ipdataBaseUrl) ? c.display.ipdataBaseUrl : DEFAULT_CONFIG.display.ipdataBaseUrl,
