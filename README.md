@@ -4,18 +4,36 @@ A custom status line for [Claude Code](https://code.claude.com/docs/en/overview)
 
 ## Preview
 
+Everything enabled (the [full preset](#full-preset-everything-enabled)), expanded layout.
+All values are mock data:
+
 ```
-Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · ⚑ plan · 2h 15m (act 1h 2m · api 21m)
-Context ███┊█░░░░░ 48% 1M ac@360k ×1  │  Usage ████░░░░░░ 28%
-$12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
+temp-workspace git:(main*) PR #128✓ · build-custom-hud · ⚑ plan · 2h 15m (act 1h 4m · api 21m)
+Context ███┊█░░░░░ 48% 1M ac@360k ×1  │  Usage ███░░░░░░░ 28% (resets in 3h 10m) | ████████░░ 84% (resets in 2d) | spend ██████░░░░ $314/$500 63% (monthly · resets 3d)
+$12.34  ·  in 480.0k  out 102.0k  cache 436.0k  ·  ↑24.3k/↓167 t/s
 Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)
-v2.1.293 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Fable 5 | high·think | ⚡fast]
+v2.1.293 · 2 CLAUDE.md · 2 rules · 3 MCPs · 1 hooks · [Fable 5.1 | high·think | ⚡fast]
+Net ● 203.0.113.7 · US · SJC · clean
 ◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
 ◐ Explore [haiku 4.5]: Researching docs (15s | 95.0 tok/s) $0.42
-✓ oracle [fable 5]: Code review (58s | 31.4 tok/s) $7.41
-✓ wf:review-sweep [fable 5] (12 agents | 1m 40s | 48k | 480 tok/s) $4.85
+✓ oracle [fable 5.1]: Code review (58s | 31.4 tok/s) $7.41
+⏸ reviewer [fable 5.1]: Waiting for follow-up (4m 10s) $1.12
+◐ wf:review-sweep [fable 5.1] (7/12 agents | 1m 02s | 26k | 419 tok/s) $3.10
 ▸ Implement auth system (3/7)
 ```
+
+The same session in the compact layout (`"lineLayout": "compact"`), one header line
+that wraps at the ` | ` separators when the terminal is narrow, then the activity lines:
+
+```
+[Fable 5.1 | high·think | ⚡fast] █████░░░░░ 48% | temp-workspace git:(main*) PR #128✓ | build-custom-hud | ⚑ plan | CC v2.1.293 | 2 CLAUDE.md | 2 rules | 3 MCPs | 1 hooks | ███░░░░░░░ 28% (3h 10m / 5h) | ████████░░ 84% (2d / 7d) | spend ██████░░░░ $314/$500 63% (monthly · 3d) | cache ●42m 93% | ⏱️  2h 15m (act 1h 4m · api 21m) | $12.34 +156/-23
+◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5
+◐ Explore [haiku 4.5]: Researching docs (15s | 95.0 tok/s) $0.42
+▸ Implement auth system (3/7)
+```
+
+Lines whose data is absent are simply not drawn: a session with no running
+agents, no todos and no `prompt_cache` yet shows four lines, not twelve.
 
 ## Requirements
 
@@ -104,7 +122,38 @@ Quit and relaunch `claude` in your terminal. The HUD should appear below your in
 
 ## Configuration
 
-Create `~/.claude/hud/config.json` to customize the display. All fields are optional and fall back to defaults.
+Create `~/.claude/hud/config.json` to customize the display. All fields are optional and
+fall back to defaults; a key with an invalid value (a typo in a color name, a number
+where a boolean is expected) is silently replaced by its default rather than failing.
+Changes apply on the next refresh — no restart.
+
+### Secrets and machine-local overrides
+
+`~/.claude/hud/config.local.json` is read after `config.json` and merged over it one
+key at a time inside `display`, `colors` and `gitStatus`, so it can hold a single
+override. It is listed in `.gitignore`: put anything secret or machine-specific
+there and keep `config.json` shareable.
+
+```json
+{
+  "display": {
+    "ipdataApiKey": "<your ipdata key>"
+  }
+}
+```
+
+Resolution order for the ipdata key, first match wins:
+
+1. `display.ipdataApiKey` in `config.local.json`
+2. `display.ipdataApiKey` in `config.json` (works, but then the key is in a tracked file)
+3. the `IPDATA_API_KEY` environment variable
+
+The environment variable must be set in the shell that launches `claude`: the
+status line command runs with `--env-file /dev/null`, so a `.env` file in the HUD
+directory is deliberately ignored. The key only matters while `showConnectivity`
+is `true`; with it set, the Net line gains the IP-reputation badge described
+under `ipdataApiKey` below. Both `CLAUDE_CONFIG_DIR` (where `hud/` lives) and
+these files are resolved the same way by `index.ts` and `subagent-line.ts`.
 
 ### Full preset (everything enabled)
 
@@ -123,6 +172,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
     "usageBarEnabled": true,
     "showDuration": true,
     "showLinesChanged": true,
+    "showCompactLine": true,
     "showCache": true,
     "showPermissionMode": true,
     "showSessionName": true,
@@ -165,6 +215,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `lineLayout` | `"expanded"` \| `"compact"` | `"expanded"` | Expanded = multi-line, Compact = single line |
 | `showSeparators` | boolean | `false` | Show separator line before activity section |
 | `pathLevels` | 1 \| 2 \| 3 | 1 | Number of path segments to show for project |
+| `elementOrder` | string[] | `["project","context","usage","tokens","cache","environment","connectivity","tools","agents","todos"]` | Order of the expanded layout's lines. Unknown names are dropped and **names you leave out are not drawn** (see Footguns). `context` and `usage` share one line when adjacent |
 
 #### Display toggles
 
@@ -177,15 +228,16 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `showContextBar` | `true` | Visual progress bar for context window |
 | `showCompactLine` | `true` | Auto-compact line: `ac@360k ×1` with a `┊` tick on the bar once observed from this session's compactions; `ac≈500k` (text only — the nominal window, actual trigger fires below it) when estimated from `autoCompactWindow` in settings / `CLAUDE_CODE_AUTO_COMPACT_WINDOW` |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
+| `autocompactBuffer` | `"enabled"` | `"enabled"` pads the context fill with a synthetic auto-compact reserve (up to 16.5% of the window, scaled in from 5% usage) so the bar reads as "distance to compaction" when the real line is unknown; `"disabled"` draws raw tokens/window. Ignored once an observed `ac@` line puts a real tick on the bar |
 | `showUsage` | `true` | 5h/7d rate limit usage. A gateway spend cap (`rate_limits.spend_limit`, CC ≥2.1.251; dollar figures ≥2.1.284) renders as `spend ██████░░░░ $314/$500 63% (monthly · resets 3d)`, alone or after the 5h/7d windows, and counts toward `⚠ Limit reached` at 100% |
 | `usageBarEnabled` | `true` | Visual bar for usage (vs text only) |
-| `showDuration` | `false` | Elapsed + active + API time `2h 9m (act 1h 2m · api 21m)` |
-| `showSpeed` | `false` | Output token speed (tok/s) |
-| `showTokenBreakdown` | `true` | Token breakdown at high context (>=85%) |
+| `showDuration` | `false` | Wall-clock ⊃ active (input gaps excluded) ⊃ API time: `2h 9m (act 1h 2m · api 21m)` |
+| `showSpeed` | `false` | `↑24.3k/↓167 t/s` input/output throughput on the tokens line, from the transcript |
+| `showTokenBreakdown` | `true` | `(in: 44k, cache: 436k)` appended to the context line once context is ≥85% |
 | `showConfigCounts` | `false` | CLAUDE.md, rules, MCPs, hooks counts |
 | `showSessionName` | `false` | Session slug or custom title from `/rename` |
 | `showClaudeCodeVersion` | `false` | CC version in the compact layout (expanded shows it on the env line) |
-| `showTokens` | `false` | Token stats line (in/out/cache + speed) |
+| `showTokens` | `false` | Tokens line: cost, `in`/`out`/`cache` counts and (with `showSpeed`) throughput. Cost alone still shows when the counts are missing |
 | `showConnectivity` | `false` | Connectivity line `Net ● 1.2.3.4 · US · LAX` from `api.anthropic.com/cdn-cgi/trace`. Makes a network request: checked at most once/15s in a **detached background process** so rendering never blocks; the line shows the last cached result (`●` green live, yellow stale, `offline` when unreachable) |
 | `connectivityUrl` | `https://api.anthropic.com/cdn-cgi/trace` | Trace endpoint to check (any Cloudflare `cdn-cgi/trace` URL) |
 | `ipdataApiKey` | `""` | [ipdata.co](https://ipdata.co) API key. **Keep the key out of the committed `config.json`** — put it in `config.local.json` (gitignored) or the `IPDATA_API_KEY` env var instead; a key in either is picked up automatically. Setting it (with `showConnectivity` on) is the switch that turns on the IP-reputation badge: `⚠ TOR`/`VPN`/`proxy`/`abuse`/`DC`/`anon` when flagged (red if ipdata marks it a threat, else yellow), with a trailing severity (`threat_score`, or `Nbl` = blocklist count on the free tier), and dim `clean` otherwise. Also cross-checks ipdata's country against the Cloudflare loc and appends `⚠ geo US≠JP` on a mismatch. Results are cached per-IP for a day in `ip-risk-cache.json`, so a stable IP costs ~1 lookup/day — far under the free 1500/day |
@@ -193,10 +245,10 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `showCache` | `true` | Prompt-cache line `Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)` from stdin `prompt_cache` (CC ≥2.1.251; miss causes ≥2.1.260). `●` green = warm; amber when under 5 min from expiry; `○ cold · recache 45k` once expired (the tokens the next request will re-write); `○ not observed` when the API reported no caching. The engine re-runs the status line at `expires_at`, so the countdown flips to cold on time without a `refreshInterval`. Compact layout: `cache ●42m 93%` |
 | `showPermissionMode` | `true` | `⚑ bypass` / `⚑ auto` / `⚑ plan` / `⚑ accept` badge on the project line from stdin `permission_mode`; hidden for `default`. Unknown future modes are shown verbatim |
 | `subagentLineColors` | `false` | `subagent-line.ts` only: emit ANSI colors in agent-panel rows instead of plain text |
-| `showTools` | `false` | Tool activity (running + completed counts) |
-| `showAgents` | `false` | Subagent status (running/completed) |
-| `showTodos` | `false` | Task progress |
-| `customLine` | `""` | Static custom text to display |
+| `showTools` | `false` | Up to two running tools with their target, then the four most-used completed tools with counts |
+| `showAgents` | `false` | Up to five agents: running → fresh idle → completed/stopped → idle longer than 10 min (dimmed `· stale`); each with model, description, elapsed, tok/s, tool count, tokens and cost where the transcript has them. Workflow runs aggregate to one `wf:` line each |
+| `showTodos` | `false` | The in-progress task `▸ … (done/total)`, or `✓ All todos complete` |
+| `customLine` | `""` | Static custom text on the project line (compact: its own part), cut at 80 characters |
 
 #### Git status
 
@@ -212,9 +264,9 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `usageThreshold` | 0 | Minimum usage % to show usage line |
-| `sevenDayThreshold` | 80 | Minimum 7-day % to show weekly usage |
-| `environmentThreshold` | 0 | Minimum config count to show environment line |
+| `usageThreshold` | 0 | Hide the usage line until the highest of 5h / 7d / spend reaches this % |
+| `sevenDayThreshold` | 80 | Show the 7-day window only from this % (the 5h window is always shown when present) |
+| `environmentThreshold` | 0 | Hide the config counts until CLAUDE.md + rules + MCPs + hooks reaches this total |
 
 #### Colors
 
@@ -351,6 +403,13 @@ subagent-line.ts            ← Second entry point (subagentStatusLine): agent-p
 - **`showPermissionMode` reads `permission_mode` from stdin**, a field present in
   current builds but not (yet) in the published status line docs. Older CLIs
   simply never show the badge.
+- **Narrow terminals wrap, they don't scroll.** Each line is broken at its ` | ` /
+  ` │ ` separators to fit `COLUMNS`, then truncated with `...`; the usage line is
+  the first to split once the spend cap is shown. Bar widths shrink below 100 and
+  60 columns.
+- **Invalid config values fall back silently.** `mergeConfig` validates every key
+  and substitutes the default on a mismatch, so a misspelled color or a string
+  where a boolean belongs produces no error — just the default look.
 - **The HUD runs from source on every refresh.** A syntax error in any file
   blanks the status line until it is fixed; `main()`'s try/catch only catches
   runtime errors. Run `bun test` and a manual render before trusting an edit.
