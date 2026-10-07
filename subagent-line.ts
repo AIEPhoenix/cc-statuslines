@@ -20,6 +20,7 @@ import { readStdin } from './stdin.ts';
 import { fmtModel, fmtElapsedMs, fmtAgentTokens } from './render/agents.ts';
 import { magenta, white, label, dim, RESET } from './render/colors.ts';
 import { visualLength, sliceVisible } from './render/index.ts';
+import { cleanText } from './utils/text.ts';
 
 interface SubagentTask {
   id: string;
@@ -69,8 +70,17 @@ async function main(): Promise<void> {
  * `tokenSamples` has no timestamps, so an instantaneous rate can't be derived
  * from it reliably.
  */
-export function formatTask(t: SubagentTask, now: number, colors: boolean): string {
+export function formatTask(raw: SubagentTask, now: number, colors: boolean): string {
   const c = colors ? { magenta, white, label: (s: string) => label(s), dim } : { magenta: id, white: id, label: id, dim: id };
+  // The payload's strings are written by the model (Agent tool description,
+  // agent names) and are drawn straight into the terminal: strip control and
+  // format characters so a crafted description cannot inject escape sequences.
+  const t = {
+    ...raw,
+    agentType: cleanText(raw.agentType), type: cleanText(raw.type), name: cleanText(raw.name),
+    model: cleanText(raw.model), effort: cleanText(raw.effort),
+    label: cleanText(raw.label), description: cleanText(raw.description),
+  };
   const type = t.agentType || t.type || 'agent';
   const name = t.name && t.name !== type ? `${type} ${c.dim(`(${t.name})`)}` : type;
   const bracket: string[] = [];

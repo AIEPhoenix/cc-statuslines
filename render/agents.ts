@@ -1,5 +1,6 @@
 import type { RenderContext, AgentEntry, WorkflowEntry } from '../types.ts';
 import { yellow, green, red, magenta, white, label, dim, brightBlue, RESET } from './colors.ts';
+import { stripControl } from '../utils/text.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold, matches the project line cost
 
@@ -37,7 +38,7 @@ export function renderAgentsLine(ctx: RenderContext): string | null {
  * ◐ wf:name [fable 5] (2/4 agents | 15s | 4.1k tok | 270 tok/s) $0.18 */
 function fmtWorkflow(w: WorkflowEntry, colors?: RenderContext['config']['colors']): string {
   const icon = w.status === 'running' ? yellow('◐') : green('✓');
-  const name = `${dim('wf:')}${magenta(w.name)}`;
+  const name = `${dim('wf:')}${magenta(stripControl(w.name))}`;
   const m = w.model ? ` ${label(`[${w.model === 'mixed' ? 'mixed' : fmtModel(w.model)}]`, colors)}` : '';
   const agentsStr = w.status === 'running' ? `${w.completedCount}/${w.agentCount} agents` : `${w.agentCount} agents`;
   const elapsed = w.startTime
@@ -55,9 +56,13 @@ function fmtAgent(a: AgentEntry, colors?: RenderContext['config']['colors'], sta
     : a.status === 'idle' ? (stale ? dim('⏸') : brightBlue('⏸'))
     : a.status === 'stopped' ? red('✗')
     : green('✓');
-  const type = stale ? dim(a.type) : magenta(a.type);
-  const m = a.model ? ` ${label(`[${fmtModel(a.model)}]`, colors)}` : '';
-  const desc = a.description ? `${dim(':')} ${white(a.description.length > 40 ? a.description.slice(0, 37) + '...' : a.description)}` : '';
+  // Type, model and description come from the transcript (model-written):
+  // strip control characters before they reach the terminal.
+  const safeType = stripControl(a.type);
+  const type = stale ? dim(safeType) : magenta(safeType);
+  const m = a.model ? ` ${label(`[${fmtModel(stripControl(a.model))}]`, colors)}` : '';
+  const description = a.description ? stripControl(a.description) : '';
+  const desc = description ? `${dim(':')} ${white(description.length > 40 ? description.slice(0, 37) + '...' : description)}` : '';
   const elapsed = fmtElapsed(a);
   const speed = typeof a.outputTokensPerSec === 'number' ? ` | ${a.outputTokensPerSec.toFixed(1)} tok/s` : '';
   const tools = typeof a.totalToolUseCount === 'number' ? ` | ${a.totalToolUseCount}t` : '';
