@@ -1,6 +1,6 @@
 import type { RenderContext } from '../types.ts';
-import { getModelName, getProviderLabel, getEffortLevel, getWorktreeName } from '../stdin.ts';
-import { git as gitColor, gitBranch as gitBranchColor, model as modelColor, brightBlue, green, red, dim } from './colors.ts';
+import { getModelName, getProviderLabel, getEffortLevel, getWorktreeName, getPermissionMode } from '../stdin.ts';
+import { git as gitColor, gitBranch as gitBranchColor, model as modelColor, brightBlue, green, red, dim, warning, critical } from './colors.ts';
 
 /**
  * Shared segment builders used by both the expanded (project.ts) and
@@ -27,6 +27,9 @@ export function buildModelSegment(ctx: RenderContext): string | null {
     const part = effort ? (thinking ? `${effort}·think` : effort) : (thinking ? 'think' : null);
     if (part) qualifiers.push(part);
   }
+
+  // `/fast` is a property of how the model is being served, so it lives in the bracket.
+  if (ctx.stdin.fast_mode === true) qualifiers.push('⚡fast');
 
   const inner = [getModelName(ctx.stdin), ...qualifiers].join(' | ');
   return modelColor(`[${inner}]`, colors);
@@ -70,7 +73,8 @@ export function buildGitSegment(ctx: RenderContext): string {
 function buildPRPart(ctx: RenderContext): string | null {
   const pr = ctx.stdin.pr;
   if (typeof pr?.number !== 'number') return null;
-  let text = `PR #${pr.number}`;
+  // `kind: "mr"` marks a GitLab merge request (CC ≥2.1.234).
+  let text = `${pr.kind === 'mr' ? 'MR' : 'PR'} #${pr.number}`;
   if (pr.review_state === 'approved') text += '✓';
   else if (pr.review_state === 'changes_requested') text += '✗';
   const colored = brightBlue(text);
@@ -96,4 +100,23 @@ export function buildLinesChangedSegment(ctx: RenderContext): string | null {
 export function buildAgentNameSegment(ctx: RenderContext): string | null {
   const name = ctx.stdin.agent?.name?.trim();
   return name ? dim(`@${name}`) : null;
+}
+
+/** `bypass` / `auto` / `plan` / `accept` — the session's permission mode, when
+ * it is not the default. One hue, one meaning: bypass is the dangerous one
+ * (critical), auto is the "a classifier decides" one (warning), plan is read-only
+ * (blue), anything else is dim. Unknown values are shown as-is, never dropped. */
+export function buildPermissionSegment(ctx: RenderContext): string | null {
+  if (ctx.config?.display?.showPermissionMode === false) return null;
+  const mode = getPermissionMode(ctx.stdin);
+  if (!mode) return null;
+  const colors = ctx.config?.colors;
+  switch (mode) {
+    case 'bypassPermissions': return critical('⚑ bypass', colors);
+    case 'auto': return warning('⚑ auto', colors);
+    case 'plan': return brightBlue('⚑ plan');
+    case 'acceptEdits': return dim('⚑ accept');
+    case 'dontAsk': return dim('⚑ dontAsk');
+    default: return dim(`⚑ ${mode}`);
+  }
 }

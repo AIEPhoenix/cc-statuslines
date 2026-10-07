@@ -10,7 +10,7 @@ export function renderToolsLine(ctx: RenderContext): string | null {
   const completed = tools.filter(t => t.status === 'completed' || t.status === 'error');
 
   for (const tool of running.slice(-2)) {
-    const target = tool.target ? truncPath(tool.target) : '';
+    const target = tool.target ? truncTarget(tool.name, tool.target) : '';
     parts.push(`${yellow('◐')} ${white(tool.name)}${target ? label(`: ${target}`, colors) : ''}`);
   }
 
@@ -24,6 +24,17 @@ export function renderToolsLine(ctx: RenderContext): string | null {
   if (lines) parts.push(lines);
 
   return parts.length === 0 ? null : parts.join(dim('  '));
+}
+
+// URLs behave like paths: the last segment is the informative one.
+const PATH_TOOLS = new Set(['Read', 'Write', 'Edit', 'NotebookEdit', 'WebFetch']);
+
+/** Path-like targets keep their filename; everything else (a Bash command, a
+ * search query) is cut from the end, so `cd /Users/...` doesn't read as `.../-Use...`. */
+function truncTarget(name: string, target: string, max = 20): string {
+  if (PATH_TOOLS.has(name)) return truncPath(target, max);
+  const t = target.replace(/\s+/g, ' ').trim();
+  return t.length <= max ? t : t.slice(0, max - 3) + '...';
 }
 
 function truncPath(p: string, max = 20): string {

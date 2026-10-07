@@ -1,4 +1,4 @@
-import type { StdinData, UsageData } from './types.ts';
+import type { StdinData, UsageData, SpendLimitData } from './types.ts';
 
 const AUTOCOMPACT_BUFFER_PERCENT = 0.165;
 
@@ -82,13 +82,37 @@ export function getUsageFromStdin(stdin: StdinData): UsageData | null {
   if (!r) return null;
   const fiveHour = parsePercent(r.five_hour?.used_percentage);
   const sevenDay = parsePercent(r.seven_day?.used_percentage);
-  if (fiveHour === null && sevenDay === null) return null;
+  const spend = parseSpendLimit(r.spend_limit);
+  if (fiveHour === null && sevenDay === null && spend === null) return null;
   return {
     fiveHour,
     sevenDay,
     fiveHourResetAt: parseResetAt(r.five_hour?.resets_at),
     sevenDayResetAt: parseResetAt(r.seven_day?.resets_at),
+    spend,
   };
+}
+
+/** Gateway spend cap (CC ≥2.1.251). `used_percentage` is the only required field;
+ * the dollar figures and period arrived in 2.1.284 and may be absent. */
+function parseSpendLimit(v: NonNullable<StdinData['rate_limits']>['spend_limit']): SpendLimitData | null {
+  if (!v) return null;
+  const percent = parsePercent(v.used_percentage);
+  if (percent === null) return null;
+  const usd = (n: number | null | undefined) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null);
+  return {
+    percent,
+    resetAt: parseResetAt(v.resets_at),
+    usedUsd: usd(v.used_usd),
+    limitUsd: usd(v.limit_usd),
+    period: typeof v.period === 'string' && v.period ? v.period : null,
+  };
+}
+
+/** `default` carries no information; anything else is a mode worth a badge. */
+export function getPermissionMode(stdin: StdinData): string | null {
+  const m = stdin.permission_mode?.trim();
+  return m && m !== 'default' ? m : null;
 }
 
 function parsePercent(v: number | null | undefined): number | null {

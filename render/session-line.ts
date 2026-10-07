@@ -1,9 +1,10 @@
-import type { RenderContext } from '../types.ts';
+import type { RenderContext, SpendLimitData } from '../types.ts';
 import { isLimitReached } from '../types.ts';
 import { getContextPercent, getBufferedPercent, getProviderLabel, getTotalTokens } from '../stdin.ts';
 import { coloredBar, critical, label, project as projectColor, getContextColor, getQuotaColor, quotaBar, custom as customColor, italic, RESET } from './colors.ts';
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
-import { buildModelSegment, buildGitSegment, buildLinesChangedSegment, buildAgentNameSegment } from './segments.ts';
+import { buildModelSegment, buildGitSegment, buildLinesChangedSegment, buildAgentNameSegment, buildPermissionSegment } from './segments.ts';
+import { renderCachePart } from './cache.ts';
 
 const COST_COLOR = '\x1b[38;5;178m'; // muted gold, same as the expanded layout
 function cost(text: string): string { return `${COST_COLOR}${text}${RESET}`; }
@@ -65,6 +66,9 @@ export function renderSessionLine(ctx: RenderContext): string {
   const agentPart = buildAgentNameSegment(ctx);
   if (agentPart) parts.push(agentPart);
 
+  const permissionPart = buildPermissionSegment(ctx);
+  if (permissionPart) parts.push(permissionPart);
+
   if (display?.showClaudeCodeVersion && ctx.claudeCodeVersion) {
     parts.push(label(`CC v${ctx.claudeCodeVersion}`, colors));
   }
@@ -83,33 +87,39 @@ export function renderSessionLine(ctx: RenderContext): string {
 
   // Usage limits
   if (display?.showUsage !== false && ctx.usageData && !providerLabel) {
+    const { fiveHour, sevenDay, spend } = ctx.usageData;
     if (isLimitReached(ctx.usageData)) {
-      const resetTime = ctx.usageData.fiveHour === 100
-        ? formatResetTime(ctx.usageData.fiveHourResetAt)
-        : formatResetTime(ctx.usageData.sevenDayResetAt);
+      const resetTime = fiveHour === 100 ? formatResetTime(ctx.usageData.fiveHourResetAt)
+        : sevenDay === 100 ? formatResetTime(ctx.usageData.sevenDayResetAt)
+        : formatResetTime(spend?.resetAt ?? null);
       parts.push(critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors));
     } else {
       const usageThreshold = display?.usageThreshold ?? 0;
-      const fiveHour = ctx.usageData.fiveHour;
-      const sevenDay = ctx.usageData.sevenDay;
-      const effectiveUsage = Math.max(fiveHour ?? 0, sevenDay ?? 0);
+      const effectiveUsage = Math.max(fiveHour ?? 0, sevenDay ?? 0, spend?.percent ?? 0);
       if (effectiveUsage >= usageThreshold) {
         const usageBarEnabled = display?.usageBarEnabled ?? true;
-        if (fiveHour === null && sevenDay !== null) {
-          parts.push(formatUsageWindowPart({ label: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth, forceLabel: true }));
+        const spendPart = spend ? formatSpendPart(spend, colors, usageBarEnabled, barWidth) : null;
+        if (fiveHour === null && sevenDay === null) {
+          if (spendPart) parts.push(spendPart);
+        } else if (fiveHour === null && sevenDay !== null) {
+          const sd = formatUsageWindowPart({ label: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth, forceLabel: true });
+          parts.push(spendPart ? `${sd} | ${spendPart}` : sd);
         } else {
           const fiveHourPart = formatUsageWindowPart({ label: '5h', percent: fiveHour, resetAt: ctx.usageData.fiveHourResetAt, colors, usageBarEnabled, barWidth });
           const sevenDayThreshold = display?.sevenDayThreshold ?? 80;
+          const segs = [fiveHourPart];
           if (sevenDay !== null && sevenDay >= sevenDayThreshold) {
-            const sevenDayPart = formatUsageWindowPart({ label: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth });
-            parts.push(`${fiveHourPart} | ${sevenDayPart}`);
-          } else {
-            parts.push(fiveHourPart);
+            segs.push(formatUsageWindowPart({ label: '7d', percent: sevenDay, resetAt: ctx.usageData.sevenDayResetAt, colors, usageBarEnabled, barWidth }));
           }
+          if (spendPart) segs.push(spendPart);
+          parts.push(segs.join(' | '));
         }
       }
     }
   }
+
+  const cachePart = renderCachePart(ctx);
+  if (cachePart) parts.push(cachePart);
 
   // Duration
   if (display?.showDuration !== false && ctx.sessionDuration) {
@@ -182,6 +192,18 @@ function formatUsageWindowPart({ label: l, percent, resetAt, colors, usageBarEna
     return forceLabel ? `${l}: ${body}` : body;
   }
   return reset ? `${l}: ${usageDisplay} ${label(`(${reset})`, colors)}` : `${l}: ${usageDisplay}`;
+}
+
+/** `spend $314/$500 63% (monthly · 3d)` — gateway spend cap, compact form. */
+function formatSpendPart(spend: SpendLimitData, colors: RenderContext['config']['colors'] | undefined, usageBarEnabled: boolean, barWidth: number): string {
+  const pct = formatUsagePercent(spend.percent, colors);
+  const fmtUsd = (n: number) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2).replace(/\.00$/, '')}`);
+  const dollars = spend.usedUsd !== null && spend.limitUsd !== null ? `${fmtUsd(spend.usedUsd)}/${fmtUsd(spend.limitUsd)} ` : '';
+  const reset = formatResetTime(spend.resetAt);
+  const notes = [spend.period, reset].filter(Boolean).join(' · ');
+  const tail = notes ? ` ${label(`(${notes})`, colors)}` : '';
+  const bar = usageBarEnabled ? `${quotaBar(spend.percent, barWidth, colors)} ` : '';
+  return `${label('spend', colors)} ${bar}${dollars}${pct}${tail}`;
 }
 
 function formatResetTime(resetAt: Date | null): string {

@@ -5,10 +5,11 @@ A custom status line for [Claude Code](https://docs.anthropic.com/en/docs/claude
 ## Preview
 
 ```
-Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · 2h 15m (act 1h 2m · api 21m)
+Temp-Workspace git:(main*) PR #128✓ · build-custom-hud · ⚑ plan · 2h 15m (act 1h 2m · api 21m)
 Context ███┊█░░░░░ 48% 1M ac@360k ×1  │  Usage ████░░░░░░ 28%
 $12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
-v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Fable 5 | high·think]
+Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)
+v2.1.293 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Fable 5 | high·think | ⚡fast]
 ◐ Edit: .../index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
 ◐ Explore [haiku 4.5]: Researching docs (15s | 95.0 tok/s) $0.42
 ✓ oracle [fable 5]: Code review (58s | 31.4 tok/s) $7.41
@@ -71,6 +72,28 @@ Or if you have `CLAUDE_CONFIG_DIR` set:
 `refreshInterval` (Claude Code ≥2.1.150) re-runs the HUD every N seconds, so the session
 duration and running agent timers tick in real time instead of only updating on new messages.
 
+### 3b. (Optional) Per-subagent rows in the agent panel
+
+Claude Code ≥2.1.205 can also ask a script to draw each running subagent's row
+in the agent panel (`subagentStatusLine`). The HUD ships an entry for it:
+
+```json
+{
+  "subagentStatusLine": {
+    "type": "command",
+    "command": "/absolute/path/to/bun --env-file /dev/null ~/.claude/hud/subagent-line.ts"
+  }
+}
+```
+
+It renders `oracle [fable 5 | high]: Code review (58s | 31 tok/s | 12k 6%)` per
+agent from the payload alone (type, model, effort since 2.1.213, `agentType`
+since 2.1.293, token count, context window), so it never reads a transcript and
+stays well inside the engine's 5 s budget. Use `bun`'s **absolute path**
+(`readlink -f "$(which bun)"`): the engine runs this command without inheriting
+your shell environment, so a bare `bun` may not resolve. Rows are plain text by default; set
+`display.subagentLineColors: true` to emit ANSI colors if your panel renders them.
+
 ### 4. Restart Claude Code
 
 Quit and relaunch `claude` in your terminal. The HUD should appear below your input field.
@@ -96,6 +119,8 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
     "usageBarEnabled": true,
     "showDuration": true,
     "showLinesChanged": true,
+    "showCache": true,
+    "showPermissionMode": true,
     "showSessionName": true,
     "showTools": true,
     "showAgents": true,
@@ -140,13 +165,13 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | Key | Default | Description |
 |-----|---------|-------------|
 | `showModel` | `true` | Model name `[Fable 5]` |
-| `showEffort` | `true` | Effort + thinking inside the model bracket `[Fable 5 \| high·think]` |
+| `showEffort` | `true` | Effort + thinking inside the model bracket `[Fable 5 \| high·think]`. `⚡fast` joins the bracket while `/fast` mode is on (stdin `fast_mode`) |
 | `showLinesChanged` | `false` | Session lines added/removed `+156/-23` at the end of the tools line |
 | `showProject` | `true` | Project directory name |
 | `showContextBar` | `true` | Visual progress bar for context window |
 | `showCompactLine` | `true` | Auto-compact line: `ac@360k ×1` with a `┊` tick on the bar once observed from this session's compactions; `ac≈500k` (text only — the nominal window, actual trigger fires below it) when estimated from `autoCompactWindow` in settings / `CLAUDE_CODE_AUTO_COMPACT_WINDOW` |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
-| `showUsage` | `true` | 5h/7d rate limit usage |
+| `showUsage` | `true` | 5h/7d rate limit usage. A gateway spend cap (`rate_limits.spend_limit`, CC ≥2.1.251; dollar figures ≥2.1.284) renders as `spend ██████░░░░ $314/$500 63% (monthly · resets 3d)`, alone or after the 5h/7d windows, and counts toward `⚠ Limit reached` at 100% |
 | `usageBarEnabled` | `true` | Visual bar for usage (vs text only) |
 | `showDuration` | `false` | Elapsed + active + API time `2h 9m (act 1h 2m · api 21m)` |
 | `showSpeed` | `false` | Output token speed (tok/s) |
@@ -159,6 +184,9 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `connectivityUrl` | `https://api.anthropic.com/cdn-cgi/trace` | Trace endpoint to check (any Cloudflare `cdn-cgi/trace` URL) |
 | `ipdataApiKey` | `""` | [ipdata.co](https://ipdata.co) API key. **Keep the key out of the committed `config.json`** — put it in `config.local.json` (gitignored) or the `IPDATA_API_KEY` env var instead; a key in either is picked up automatically. Setting it (with `showConnectivity` on) is the switch that turns on the IP-reputation badge: `⚠ TOR`/`VPN`/`proxy`/`abuse`/`DC`/`anon` when flagged (red if ipdata marks it a threat, else yellow), with a trailing severity (`threat_score`, or `Nbl` = blocklist count on the free tier), and dim `clean` otherwise. Also cross-checks ipdata's country against the Cloudflare loc and appends `⚠ geo US≠JP` on a mismatch. Results are cached per-IP for a day in `ip-risk-cache.json`, so a stable IP costs ~1 lookup/day — far under the free 1500/day |
 | `ipdataBaseUrl` | `https://api.ipdata.co` | ipdata endpoint (use `https://eu-api.ipdata.co` for the EU region) |
+| `showCache` | `true` | Prompt-cache line `Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)` from stdin `prompt_cache` (CC ≥2.1.251; miss causes ≥2.1.260). `●` green = warm; amber when under 5 min from expiry; `○ cold · recache 45k` once expired (the tokens the next request will re-write); `○ not observed` when the API reported no caching. The engine re-runs the status line at `expires_at`, so the countdown flips to cold on time without a `refreshInterval`. Compact layout: `cache ●42m 93%` |
+| `showPermissionMode` | `true` | `⚑ bypass` / `⚑ auto` / `⚑ plan` / `⚑ accept` badge on the project line from stdin `permission_mode`; hidden for `default`. Unknown future modes are shown verbatim |
+| `subagentLineColors` | `false` | `subagent-line.ts` only: emit ANSI colors in agent-panel rows instead of plain text |
 | `showTools` | `false` | Tool activity (running + completed counts) |
 | `showAgents` | `false` | Subagent status (running/completed) |
 | `showTodos` | `false` | Task progress |
@@ -172,7 +200,7 @@ Create `~/.claude/hud/config.json` to customize the display. All fields are opti
 | `gitStatus.showDirty` | `true` | Show `*` for uncommitted changes |
 | `gitStatus.showAheadBehind` | `false` | Show `↑2 ↓1` ahead/behind counts |
 | `gitStatus.showFileStats` | `false` | Starship-style `!3 +1 ✘0 ?2` stats |
-| `gitStatus.showPR` | `true` | GitHub PR for current branch (`PR #128✓`, clickable via OSC 8) |
+| `gitStatus.showPR` | `true` | GitHub PR for current branch (`PR #128✓`, clickable via OSC 8); a GitLab merge request (stdin `pr.kind: "mr"`, CC ≥2.1.234) shows as `MR #128` |
 
 #### Thresholds
 
@@ -207,12 +235,13 @@ All colors accept: named presets (`"dim"`, `"red"`, `"green"`, `"yellow"`, `"mag
 ## What each line shows
 
 ```
-Line 1 (Project):    project git:(branch*) wt:name PR #128✓ · session-name · 2h 15m (act 1h 2m · api 21m)
+Line 1 (Project):    project git:(branch*) wt:name PR #128✓ · session-name · ⚑ plan · 2h 15m (act 1h 2m · api 21m)
 Line 2 (Context):    Context ███┊█░░░░░ 48% 1M ac@360k ×1  │  Usage ████░░░░░░ 28%
 Line 3 (Tokens):     $12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
-Line 4 (Env):        v2.1.170 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Model | effort·think]
-Line 5 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
-Line 6+ (Agents):    ◐ Explore: Researching docs (15s)
+Line 4 (Cache):      Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)
+Line 5 (Env):        v2.1.293 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Model | effort·think | ⚡fast]
+Line 6 (Tools):      ◐ Edit: index.ts  ✓ Read ×9  ✓ Bash ×5  +156/-23
+Line 7+ (Agents):    ◐ Explore: Researching docs (15s)
                      ✓ oracle: Code review (58s)
                      ◐ wf:review-sweep [fable 5] (7/12 agents | 1m 02s | 26k | 419 tok/s) $3.10
 Line N (Todos):      ▸ Implement feature (3/7)
@@ -221,6 +250,8 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | Symbol | Meaning |
 |--------|---------|
 | `◐` | Running (tool/agent in progress) |
+| `●` / `○` | Prompt cache warm / cold (or not observed) |
+| `⚑` | Permission mode other than default |
 | `✓` | Completed |
 | `▸` | Current task in progress |
 | `↑` / `↓` | Input / output token speed |
@@ -230,6 +261,10 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | Feature | Description |
 |---------|-------------|
 | **Session cost** | `$12.34` — real-time cost from Claude Code's `cost.total_cost_usd` |
+| **Prompt-cache health** | `Cache ● 1h · expires 42m · hit 93%` — TTL countdown, hit ratio and the last miss's cause, so a pause can be timed around the 1h cache and a cold cache explained (CC ≥2.1.251) |
+| **Spend cap** | `spend $314/$500 63% (monthly)` — gateway spend limit beside the 5h/7d windows (CC ≥2.1.251) |
+| **Mode badges** | `⚑ bypass` / `⚑ plan` on the project line, `⚡fast` in the model bracket |
+| **Subagent panel rows** | `subagent-line.ts` entry for `subagentStatusLine`: per-agent model/effort/elapsed/throughput in the agent panel, from the payload alone |
 | **Lines changed** | `+156/-23` — session-wide lines added/removed |
 | **Effort level** | `[Fable 5 \| high]` — reasoning effort from `effort.level` |
 | **PR awareness** | `PR #128✓` — current branch's GitHub PR with review state, clickable (OSC 8) |
@@ -252,7 +287,8 @@ Line N (Todos):      ▸ Implement feature (3/7)
 ```
 Claude Code
     ↓ (JSON via stdin)
-index.ts                    ← Entry point
+index.ts                    ← Entry point (statusLine)
+subagent-line.ts            ← Second entry point (subagentStatusLine): agent-panel rows
     ├── stdin.ts            ← Parse stdin (model, context, usage, cost)
     ├── transcript.ts       ← Parse transcript JSONL (tools, agents, todos)
     ├── config-reader.ts    ← Count CLAUDE.md, rules, MCPs, hooks
@@ -264,14 +300,35 @@ index.ts                    ← Entry point
         ├── project.ts      ← Line 1: model, project, git, duration, cost
         ├── identity.ts     ← Line 2L: context bar
         ├── usage.ts        ← Line 2R: rate limit usage
-        ├── tokens.ts       ← Line 3: CC version, token counts, speed
-        ├── environment.ts  ← Line 4: config counts
+        ├── tokens.ts       ← Line 3: cost, token counts, speed
+        ├── cache.ts        ← Line 4: prompt-cache health (expanded line + compact part)
+        ├── environment.ts  ← Line 5: config counts
         ├── tools.ts        ← Tools activity
         ├── agents.ts       ← Agent status
         ├── todos.ts        ← Task progress
         ├── session-line.ts ← Compact mode (all-in-one)
         └── colors.ts       ← ANSI color system
 ```
+
+## Footguns
+
+- **`elementOrder` is a whitelist, not a merge.** A custom `elementOrder` in
+  `config.json` only keeps the elements it names: the `cache` line added in
+  v8.4 will not appear until you add `"cache"` to your list (default position:
+  after `tokens`).
+- **`subagentStatusLine` runs with an empty environment.** Claude Code calls it
+  with `extendEnv: false`, so write `bun`'s absolute path in the command, and
+  don't rely on `CLAUDE_CONFIG_DIR` being set there — the entry falls back to
+  `~/.claude` like the main HUD does.
+- **Only `{"id","content"}` lines may reach stdout from `subagent-line.ts`.**
+  Anything else is discarded and logged as an error by the engine; the entry
+  swallows its own failures and prints nothing rather than risk that.
+- **The CLAUDE.md count walks every ancestor of cwd**, matching how Claude Code
+  loads instruction files. If the count looks high, a parent directory has a
+  CLAUDE.md you may have forgotten about.
+- **`showPermissionMode` reads `permission_mode` from stdin**, a field present in
+  current builds but not (yet) in the published status line docs. Older CLIs
+  simply never show the badge.
 
 ## License
 
