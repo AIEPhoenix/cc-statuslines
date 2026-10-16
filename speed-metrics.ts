@@ -18,32 +18,62 @@ export interface SpeedMetrics {
   lastEventMs: number | null;
 }
 
-interface UsageTotals {
-  input: number;
-  output: number;
-  cacheWrite5m: number;
-  cacheWrite1h: number;
-  cacheRead: number;
+interface ModelPrice {
+  match: RegExp;
+  /** $/MTok input and output. */
+  inPerM: number;
+  outPerM: number;
+  /** $/MTok cache read when it isn't the usual 0.1x of input. */
+  cacheReadPerM?: number;
+  /** Prompts (input + cache tokens) above this size bill at `long` rates instead. */
+  longAbove?: number;
+  long?: { inPerM: number; outPerM: number };
+  /** Price multiplier for `usage.speed === 'fast'` (`/fast`). */
+  fastMultiplier?: number;
 }
 
-// $/MTok input and output. Cache rates derive from input: write 5m = 1.25x, 1h = 2x, read = 0.1x.
-const MODEL_PRICING: Array<{ match: RegExp; inPerM: number; outPerM: number }> = [
-  { match: /fable/, inPerM: 10, outPerM: 50 },
+// First match wins, so versioned entries precede the family fallbacks. Cache
+// writes derive from input: 5m = 1.25x, 1h = 2x. Sources: Claude API pricing,
+// 2026-10.
+const MODEL_PRICING: ModelPrice[] = [
+  { match: /(fable|mythos)-5-1/, inPerM: 10, outPerM: 50, cacheReadPerM: 0.25 },
+  { match: /fable|mythos/, inPerM: 10, outPerM: 50 },
+  { match: /opus-5-5/, inPerM: 4, outPerM: 20, cacheReadPerM: 0.2, fastMultiplier: 2 },
+  { match: /opus-5/, inPerM: 5, outPerM: 25, fastMultiplier: 2 },
   { match: /opus/, inPerM: 5, outPerM: 25 },
+  { match: /sonnet-5/, inPerM: 2, outPerM: 10 },
   { match: /sonnet/, inPerM: 3, outPerM: 15 },
+  { match: /haiku-5-5/, inPerM: 0.1, outPerM: 0.5, longAbove: 100_000, long: { inPerM: 0.5, outPerM: 2.5 } },
   { match: /haiku/, inPerM: 1, outPerM: 5 },
 ];
 
-function estimateCostUsd(model: string | null, t: UsageTotals): number | null {
-  if (!model) return null;
-  const p = MODEL_PRICING.find(e => e.match.test(model.toLowerCase()));
+export function findModelPrice(model: string): ModelPrice | null {
+  const low = model.toLowerCase();
+  return MODEL_PRICING.find(e => e.match.test(low)) ?? null;
+}
+
+/** API-equivalent cost of one request in USD; null when the model has no pricing entry. */
+export function requestCostUsd(model: string, u: AssistantUsage): number | null {
+  const p = findModelPrice(model);
   if (!p) return null;
-  return (
-    t.input * p.inPerM +
-    t.output * p.outPerM +
-    t.cacheWrite5m * p.inPerM * 1.25 +
-    t.cacheWrite1h * p.inPerM * 2 +
-    t.cacheRead * p.inPerM * 0.1
+  const input = u.input_tokens ?? 0;
+  const cacheRead = u.cache_read_input_tokens ?? 0;
+  const cc = u.cache_creation;
+  // No TTL breakdown — assume the cheaper 5m rate
+  const write5m = cc ? cc.ephemeral_5m_input_tokens ?? 0 : u.cache_creation_input_tokens ?? 0;
+  const write1h = cc ? cc.ephemeral_1h_input_tokens ?? 0 : 0;
+  const prompt = input + cacheRead + (u.cache_creation_input_tokens ?? write5m + write1h);
+  const long = p.long && p.longAbove !== undefined && prompt > p.longAbove;
+  const inPerM = long ? p.long!.inPerM : p.inPerM;
+  const outPerM = long ? p.long!.outPerM : p.outPerM;
+  const readPerM = long ? inPerM * 0.1 : p.cacheReadPerM ?? inPerM * 0.1;
+  const mul = u.speed === 'fast' ? p.fastMultiplier ?? 1 : 1;
+  return mul * (
+    input * inPerM +
+    (u.output_tokens ?? 0) * outPerM +
+    write5m * inPerM * 1.25 +
+    write1h * inPerM * 2 +
+    cacheRead * readPerM
   ) / 1e6;
 }
 
@@ -63,6 +93,8 @@ interface AssistantUsage {
     ephemeral_5m_input_tokens?: number;
     ephemeral_1h_input_tokens?: number;
   } | null;
+  /** `standard` | `fast` */
+  speed?: string;
 }
 
 interface JsonlLine {
@@ -90,14 +122,15 @@ function parseTs(value: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-interface ScanResult { requests: SpeedRequest[]; model: string | null; totals: UsageTotals; activeDurationMs: number; firstEventMs: number | null; lastEventMs: number | null; }
+interface ScanResult { requests: SpeedRequest[]; model: string | null; costUsd: number | null; activeDurationMs: number; firstEventMs: number | null; lastEventMs: number | null; }
 
 async function scanRequests(jsonlPath: string): Promise<ScanResult> {
-  const totals: UsageTotals = { input: 0, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 };
-  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null, totals, activeDurationMs: 0, firstEventMs: null, lastEventMs: null };
+  if (!fs.existsSync(jsonlPath)) return { requests: [], model: null, costUsd: null, activeDurationMs: 0, firstEventMs: null, lastEventMs: null };
   const requests: SpeedRequest[] = [];
   let lastUserMs: number | null = null;
   let model: string | null = null;
+  // Priced per request: Haiku 5.5 tiers by prompt size and /fast by request.
+  let costUsd: number | null = null;
   let activeMs = 0;
   let turnStartMs: number | null = null;
   let lastEventMs: number | null = null;
@@ -139,17 +172,9 @@ async function scanRequests(jsonlPath: string): Promise<ScanResult> {
           interval,
         });
 
-        totals.input += u.input_tokens ?? 0;
-        totals.output += u.output_tokens ?? 0;
-        totals.cacheRead += u.cache_read_input_tokens ?? 0;
-        const cc = u.cache_creation;
-        if (cc) {
-          totals.cacheWrite5m += cc.ephemeral_5m_input_tokens ?? 0;
-          totals.cacheWrite1h += cc.ephemeral_1h_input_tokens ?? 0;
-        } else {
-          // No TTL breakdown — assume the cheaper 5m rate
-          totals.cacheWrite5m += u.cache_creation_input_tokens ?? 0;
-        }
+        const reqModel = typeof e.message.model === 'string' ? e.message.model : model;
+        const cost = reqModel ? requestCostUsd(reqModel, u) : null;
+        if (cost !== null) costUsd = (costUsd ?? 0) + cost;
       }
     }
   } catch { /* ignore read errors */ }
@@ -160,7 +185,7 @@ async function scanRequests(jsonlPath: string): Promise<ScanResult> {
     activeMs += lastEventMs - turnStartMs;
   }
 
-  return { requests, model, totals, activeDurationMs: activeMs, firstEventMs, lastEventMs };
+  return { requests, model, costUsd, activeDurationMs: activeMs, firstEventMs, lastEventMs };
 }
 
 function mergeIntervals(intervals: SpeedInterval[]): SpeedInterval[] {
@@ -191,8 +216,8 @@ function buildMetrics(requests: SpeedRequest[], model: string | null): SpeedMetr
 }
 
 export async function collectSpeed(jsonlPath: string): Promise<SpeedMetrics> {
-  const { requests, model, totals, activeDurationMs, firstEventMs, lastEventMs } = await scanRequests(jsonlPath);
-  return { ...buildMetrics(requests, model), costUsd: estimateCostUsd(model, totals), activeDurationMs, firstEventMs, lastEventMs };
+  const { requests, model, costUsd, activeDurationMs, firstEventMs, lastEventMs } = await scanRequests(jsonlPath);
+  return { ...buildMetrics(requests, model), costUsd, activeDurationMs, firstEventMs, lastEventMs };
 }
 
 export function outputTokensPerSec(m: SpeedMetrics): number | null {
