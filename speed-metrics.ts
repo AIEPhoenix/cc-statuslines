@@ -34,16 +34,19 @@ interface ModelPrice {
 
 // First match wins, so versioned entries precede the family fallbacks. Cache
 // writes derive from input: 5m = 1.25x, 1h = 2x. Sources: Claude API pricing,
-// 2026-10.
+// 2026-10-16.
 const MODEL_PRICING: ModelPrice[] = [
   { match: /(fable|mythos)-5-1/, inPerM: 10, outPerM: 50, cacheReadPerM: 0.25 },
   { match: /fable|mythos/, inPerM: 10, outPerM: 50 },
   { match: /opus-5-5/, inPerM: 4, outPerM: 20, cacheReadPerM: 0.2, fastMultiplier: 2 },
-  { match: /opus-5/, inPerM: 5, outPerM: 25, fastMultiplier: 2 },
+  { match: /opus-5|opus-4-8/, inPerM: 5, outPerM: 25, fastMultiplier: 2 },
+  { match: /opus-4-(1|2025)/, inPerM: 15, outPerM: 75 },
   { match: /opus/, inPerM: 5, outPerM: 25 },
+  { match: /sonnet-5-5/, inPerM: 2, outPerM: 10, cacheReadPerM: 0.1 },
   { match: /sonnet-5/, inPerM: 2, outPerM: 10 },
   { match: /sonnet/, inPerM: 3, outPerM: 15 },
   { match: /haiku-5-5/, inPerM: 0.1, outPerM: 0.5, longAbove: 100_000, long: { inPerM: 0.5, outPerM: 2.5 } },
+  { match: /3-5-haiku/, inPerM: 0.8, outPerM: 4 },
   { match: /haiku/, inPerM: 1, outPerM: 5 },
 ];
 
