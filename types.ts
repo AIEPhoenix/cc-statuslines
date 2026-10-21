@@ -219,7 +219,12 @@ export interface SpendLimitData {
 }
 
 export function isLimitReached(data: UsageData): boolean {
-  return data.fiveHour === 100 || data.sevenDay === 100 || data.spend?.percent === 100;
+  return data.fiveHour === 100 || data.sevenDay === 100 || isSpendCapReached(data);
+}
+
+/** The spend cap can be overrun (percent > 100), not only hit. */
+export function isSpendCapReached(data: UsageData): boolean {
+  return (data.spend?.percent ?? 0) >= 100;
 }
 
 export interface TranscriptData {

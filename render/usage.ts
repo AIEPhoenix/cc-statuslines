@@ -1,5 +1,5 @@
 import type { RenderContext, SpendLimitData } from '../types.ts';
-import { isLimitReached } from '../types.ts';
+import { isLimitReached, isSpendCapReached } from '../types.ts';
 import { getProviderLabel } from '../stdin.ts';
 import { critical, label, getQuotaColor, quotaBar, RESET } from './colors.ts';
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
@@ -11,7 +11,13 @@ export function renderUsageLine(ctx: RenderContext): string | null {
 
   const usageLabel = label('Usage', colors);
   const { fiveHour, sevenDay, spend } = ctx.usageData;
+  const usageBarEnabled = display?.usageBarEnabled ?? true;
+  const barWidth = getAdaptiveBarWidth();
   if (isLimitReached(ctx.usageData)) {
+    // Over the spend cap: keep the dollar figures so the overrun stays visible.
+    if (fiveHour !== 100 && sevenDay !== 100 && spend && isSpendCapReached(ctx.usageData)) {
+      return `${usageLabel} ${critical('⚠', colors)} ${fmtSpend(spend, colors, usageBarEnabled, barWidth)}`;
+    }
     const resetTime = fiveHour === 100 ? fmtReset(ctx.usageData.fiveHourResetAt)
       : sevenDay === 100 ? fmtReset(ctx.usageData.sevenDayResetAt)
       : fmtReset(spend?.resetAt ?? null);
@@ -21,8 +27,6 @@ export function renderUsageLine(ctx: RenderContext): string | null {
   const threshold = display?.usageThreshold ?? 0;
   if (Math.max(fiveHour ?? 0, sevenDay ?? 0, spend?.percent ?? 0) < threshold) return null;
 
-  const usageBarEnabled = display?.usageBarEnabled ?? true;
-  const barWidth = getAdaptiveBarWidth();
   // Gateway spend cap: `$314/$500 63% (monthly · resets 3d)`. Shown whenever
   // present — a gateway user typically has no 5h/7d windows at all.
   const spendPart = spend ? fmtSpend(spend, colors, usageBarEnabled, barWidth) : null;

@@ -5,6 +5,7 @@ import type { StdinData, RenderContext } from './types.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 import { renderCacheLine, renderCachePart } from './render/cache.ts';
 import { renderUsageLine } from './render/usage.ts';
+import { renderSessionLine } from './render/session-line.ts';
 import { buildPermissionSegment, buildModelSegment, buildGitSegment } from './render/segments.ts';
 
 const strip = (s: string | null) => (s ?? '').replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\]8;;[^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
@@ -40,6 +41,19 @@ test('spend_limit without the 2.1.284 dollar fields parses with nulls', () => {
 test('spend at 100% counts as limit reached', () => {
   const u = getUsageFromStdin({ rate_limits: { spend_limit: { used_percentage: 100, resets_at: NOW_S + 60 } } })!;
   expect(isLimitReached(u)).toBe(true);
+});
+
+test('spend over the cap keeps its real percentage and dollars on both layouts', () => {
+  const stdin: StdinData = { rate_limits: { spend_limit: { used_percentage: 104.4, resets_at: NOW_S + 3 * 86400, used_usd: 522, limit_usd: 500, period: 'monthly' } } };
+  const u = getUsageFromStdin(stdin)!;
+  expect(u.spend!.percent).toBe(104);
+  expect(isLimitReached(u)).toBe(true);
+  const expanded = strip(renderUsageLine(ctxOf(stdin)));
+  expect(expanded).toContain('⚠ spend');
+  expect(expanded).toContain('$522/$500 104%');
+  const compact = strip(renderSessionLine(ctxOf(stdin)));
+  expect(compact).toContain('⚠ spend');
+  expect(compact).toContain('$522/$500 104%');
 });
 
 test('usage line renders spend-only and spend-alongside-5h', () => {
