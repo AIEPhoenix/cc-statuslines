@@ -10,14 +10,17 @@ export function renderTokensLine(ctx: RenderContext): string | null {
   const countParts: string[] = [];
   const speedParts: string[] = [];
 
-  const totalIn = cw?.total_input_tokens;
-  const totalOut = cw?.total_output_tokens;
-  const usage = cw?.current_usage;
-  const cacheTokens = (usage?.cache_creation_input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0);
+  // Since CC 2.1.132 these describe the last response, not session totals, and
+  // the input figure already includes cache reads and writes.
+  const lastIn = cw?.total_input_tokens;
+  const lastOut = cw?.total_output_tokens;
+  const cacheRead = cw?.current_usage?.cache_read_input_tokens ?? 0;
 
-  if (typeof totalIn === 'number') countParts.push(`${dim('in')} ${cyan(fmtTokens(totalIn))}`);
-  if (typeof totalOut === 'number') countParts.push(`${dim('out')} ${brightMagenta(fmtTokens(totalOut))}`);
-  if (cacheTokens > 0) countParts.push(`${dim('cache')} ${brightGreen(fmtTokens(cacheTokens))}`);
+  if (typeof lastIn === 'number') {
+    const cached = cacheRead > 0 ? ` ${dim('(')}${brightGreen(fmtTokens(cacheRead))} ${dim('cached)')}` : '';
+    countParts.push(`${dim('last in')} ${cyan(fmtTokens(lastIn))}${cached}`);
+  }
+  if (typeof lastOut === 'number') countParts.push(`${dim('out')} ${brightMagenta(fmtTokens(lastOut))}`);
 
   if (ctx.config?.display?.showSpeed !== false) {
     const inputSpeed = ctx.transcript.inputTokensPerSec;

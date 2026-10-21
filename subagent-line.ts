@@ -32,7 +32,8 @@ interface SubagentTask {
   label?: string;
   startTime?: number;
   model?: string;
-  effort?: string;
+  /** Configured effort: a level name or a number. */
+  effort?: string | number;
   contextWindowSize?: number;
   tokenCount?: number;
   tokenSamples?: number[];
@@ -65,10 +66,9 @@ async function main(): Promise<void> {
 }
 
 /**
- * `explore [haiku 4.5 | high]: Researching docs (1m 02s | 203 tok/s | 12k)`
- * Throughput is the task's average (tokenCount over wall-clock since start):
- * `tokenSamples` has no timestamps, so an instantaneous rate can't be derived
- * from it reliably.
+ * `explore [haiku 4.5 | high]: Researching docs (1m 02s | 12k 6%)`
+ * No throughput: `tokenCount` is the agent's current context size, not its
+ * output, and `tokenSamples` has no timestamps, so neither yields tok/s.
  */
 export function formatTask(raw: SubagentTask, now: number, colors: boolean): string {
   const c = colors ? { magenta, white, label: (s: string) => label(s), dim } : { magenta: id, white: id, label: id, dim: id };
@@ -78,7 +78,7 @@ export function formatTask(raw: SubagentTask, now: number, colors: boolean): str
   const t = {
     ...raw,
     agentType: cleanText(raw.agentType), type: cleanText(raw.type), name: cleanText(raw.name),
-    model: cleanText(raw.model), effort: cleanText(raw.effort),
+    model: cleanText(raw.model), effort: typeof raw.effort === 'number' && Number.isFinite(raw.effort) ? String(raw.effort) : cleanText(raw.effort),
     label: cleanText(raw.label), description: cleanText(raw.description),
   };
   const type = t.agentType || t.type || 'agent';
@@ -96,7 +96,6 @@ export function formatTask(raw: SubagentTask, now: number, colors: boolean): str
   const elapsedMs = typeof t.startTime === 'number' && t.startTime > 0 ? Math.max(0, now - t.startTime) : null;
   if (elapsedMs !== null) stats.push(fmtElapsedMs(elapsedMs));
   const tokens = typeof t.tokenCount === 'number' && t.tokenCount > 0 ? t.tokenCount : null;
-  if (tokens !== null && elapsedMs !== null && elapsedMs >= 5000) stats.push(`${(tokens / (elapsedMs / 1000)).toFixed(0)} tok/s`);
   if (tokens !== null) {
     const window = typeof t.contextWindowSize === 'number' && t.contextWindowSize > 0 ? t.contextWindowSize : null;
     const pct = window ? ` ${Math.round((tokens / window) * 100)}%` : '';

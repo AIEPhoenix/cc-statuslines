@@ -1,5 +1,8 @@
 import { test, expect } from 'bun:test';
-import { requestCostUsd } from './speed-metrics.ts';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { requestCostUsd, collectSpeed } from './speed-metrics.ts';
 
 const M = 1_000_000;
 
@@ -53,4 +56,25 @@ test('fast mode doubles Opus 4.8 / 5 / 5.5 and leaves other models alone', () =>
   // cache multipliers stack on the fast price: 5m write $12.50, read $1
   expect(requestCostUsd('claude-opus-4-8', { cache_creation_input_tokens: M, cache_read_input_tokens: M, speed: 'fast' })).toBeCloseTo(13.5);
   expect(requestCostUsd('claude-sonnet-5-5', fast)).toBeCloseTo(12);
+});
+
+test('one response split into several assistant records is counted once', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hud-speed-'));
+  try {
+    const usage = { input_tokens: 1000, output_tokens: 500 };
+    const msg = (type: string) => ({ id: 'msg_1', model: 'claude-opus-5-5', usage, content: [{ type }] });
+    const lines = [
+      { type: 'user', timestamp: '2026-10-21T00:00:00.000Z', message: { content: 'hi' } },
+      { type: 'assistant', timestamp: '2026-10-21T00:00:10.000Z', message: msg('thinking') },
+      { type: 'assistant', timestamp: '2026-10-21T00:00:10.100Z', message: msg('tool_use') },
+    ];
+    const p = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(p, lines.map(l => JSON.stringify(l)).join('\n') + '\n');
+    const m = await collectSpeed(p);
+    expect(m.outputTokens).toBe(500);
+    expect(m.requestCount).toBe(1);
+    expect(m.costUsd).toBeCloseTo(requestCostUsd('claude-opus-5-5', usage)!);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
