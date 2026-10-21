@@ -108,7 +108,7 @@ in the agent panel (`subagentStatusLine`). The HUD ships an entry for it:
 }
 ```
 
-It renders `oracle [fable 5 | high]: Code review (58s | 31 tok/s | 12k 6%)` per
+It renders `oracle [fable 5 | high]: Code review (58s | 12k 6%)` per
 agent from the payload alone (type, model, effort since 2.1.213, `agentType`
 since 2.1.293, token count, context window), so it never reads a transcript and
 stays well inside the engine's 5 s budget. Use `bun`'s **absolute path**
@@ -228,7 +228,7 @@ these files are resolved the same way by `index.ts` and `subagent-line.ts`.
 | `showContextBar` | `true` | Visual progress bar for context window |
 | `showCompactLine` | `true` | Auto-compact line: `ac@360k ×1` with a `┊` tick on the bar once observed from this session's compactions; `ac≈400k` with a tick when the trigger is configured but not yet observed: `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, then the per-model `modelSettings.<model id>.autoCompactWindow` that `/autocompact` writes, then the top-level `autoCompactWindow` (capped at the context window), scaled by `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` when that window is below the context limit |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
-| `autocompactBuffer` | `"enabled"` | `"enabled"` pads the context fill with a synthetic auto-compact reserve (up to 16.5% of the window, scaled in from 5% usage) so the bar reads as "distance to compaction" when the real line is unknown; `"disabled"` draws raw tokens/window. Ignored once an observed `ac@` line puts a real tick on the bar |
+| `autocompactBuffer` | `"enabled"` | `"enabled"` pads the context fill with a synthetic auto-compact reserve (up to 16.5% of the window, scaled in from 5% usage) so the bar reads as "distance to compaction" when the real line is unknown; `"disabled"` draws raw tokens/window. Ignored whenever the bar has a tick (`ac@` or `ac≈`), since fill and tick then share the raw tokens/window scale |
 | `showUsage` | `true` | 5h/7d rate limit usage. A gateway spend cap (`rate_limits.spend_limit`, CC ≥2.1.251; dollar figures ≥2.1.284) renders as `spend ██████░░░░ $314/$500 63% (monthly · resets 3d)`, alone or after the 5h/7d windows, and at 100% or more (the cap can be overrun) shows as `⚠ spend ██████████ $522/$500 104% (…)` with its real percentage |
 | `usageBarEnabled` | `true` | Visual bar for usage (vs text only) |
 | `showDuration` | `false` | Wall-clock ⊃ active (input gaps excluded) ⊃ API time: `2h 9m (act 1h 2m · api 21m)` |
@@ -315,7 +315,7 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | `✓` | Completed |
 | `⏸` | Idle teammate (resumable; dimmed with `· stale` after 10 min) |
 | `✗` | Agent stopped or failed |
-| `┊` | Observed auto-compact line on the context bar |
+| `┊` | Auto-compact trigger on the context bar: observed (`ac@`) or configured (`ac≈`) |
 | `●` / `○` | Prompt cache warm / cold (or not observed); on the Net line, live / stale |
 | `⚑` | Permission mode other than default |
 | `▸` | Current task in progress |
@@ -329,7 +329,7 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | **Prompt-cache health** | `Cache ● 1h · expires 42m · hit 93%` — TTL countdown, hit ratio and the last miss's cause, so a pause can be timed around the 1h cache and a cold cache explained (CC ≥2.1.251) |
 | **Spend cap** | `spend $314/$500 63% (monthly)` — gateway spend limit beside the 5h/7d windows (CC ≥2.1.251) |
 | **Mode badges** | `⚑ bypass` / `⚑ plan` on the project line, `⚡fast` in the model bracket |
-| **Subagent panel rows** | `subagent-line.ts` entry for `subagentStatusLine`: per-agent model/effort/elapsed/throughput in the agent panel, from the payload alone |
+| **Subagent panel rows** | `subagent-line.ts` entry for `subagentStatusLine`: per-agent model/effort/elapsed/context size in the agent panel, from the payload alone |
 | **Lines changed** | `+156/-23` — session-wide lines added/removed |
 | **Effort level** | `[Fable 5 \| high]` — reasoning effort from `effort.level` |
 | **PR awareness** | `PR #128✓` — current branch's GitHub PR with review state, clickable (OSC 8) |
@@ -359,7 +359,7 @@ subagent-line.ts            ← Second entry point (subagentStatusLine): agent-p
     ├── stdin.ts            ← Parse stdin (model, context, usage, spend, permission mode)
     ├── transcript.ts       ← Parse transcript JSONL (tools, agents, workflows, todos, compactions)
     ├── speed-metrics.ts    ← Transcript-derived token speed and active duration
-    ├── compact-line.ts     ← Auto-compact line: observed from compactions or configured window
+    ├── compact-line.ts     ← Auto-compact trigger: observed from compactions, or configured (env, /autocompact, settings)
     ├── config-reader.ts    ← Count CLAUDE.md (cwd + ancestors), rules, MCPs, hooks
     ├── git.ts              ← Git branch, dirty, ahead/behind
     ├── connectivity.ts     ← Cached trace + ipdata result; spawns connectivity-refresh.ts
