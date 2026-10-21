@@ -1,5 +1,5 @@
 import type { RenderContext, SpendLimitData } from '../types.ts';
-import { isLimitReached } from '../types.ts';
+import { isLimitReached, isSpendCapReached } from '../types.ts';
 import { getContextPercent, getBufferedPercent, getProviderLabel, getTotalTokens } from '../stdin.ts';
 import { coloredBar, critical, label, project as projectColor, getContextColor, getQuotaColor, quotaBar, custom as customColor, italic, RESET } from './colors.ts';
 import { getAdaptiveBarWidth } from '../utils/terminal.ts';
@@ -90,10 +90,15 @@ export function renderSessionLine(ctx: RenderContext): string {
   if (display?.showUsage !== false && ctx.usageData && !providerLabel) {
     const { fiveHour, sevenDay, spend } = ctx.usageData;
     if (isLimitReached(ctx.usageData)) {
+      // Over the spend cap: keep the dollar figures so the overrun stays visible.
+      if (fiveHour !== 100 && sevenDay !== 100 && spend && isSpendCapReached(ctx.usageData)) {
+        parts.push(`${critical('⚠', colors)} ${formatSpendPart(spend, colors, display?.usageBarEnabled ?? true, barWidth)}`);
+      } else {
       const resetTime = fiveHour === 100 ? formatResetTime(ctx.usageData.fiveHourResetAt)
         : sevenDay === 100 ? formatResetTime(ctx.usageData.sevenDayResetAt)
         : formatResetTime(spend?.resetAt ?? null);
       parts.push(critical(`⚠ Limit reached${resetTime ? ` (resets ${resetTime})` : ''}`, colors));
+      }
     } else {
       const usageThreshold = display?.usageThreshold ?? 0;
       const effectiveUsage = Math.max(fiveHour ?? 0, sevenDay ?? 0, spend?.percent ?? 0);
