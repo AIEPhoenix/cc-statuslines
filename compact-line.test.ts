@@ -1,5 +1,8 @@
 import { test, expect } from 'bun:test';
-import { parseWindowValue, resolveCompactLine } from './compact-line.ts';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { parseWindowValue, resolveCompactLine, readAutoCompactWindow } from './compact-line.ts';
 import type { RenderContext } from './types.ts';
 
 test('parseWindowValue accepts numbers and k/m strings, clamps range', () => {
@@ -40,4 +43,52 @@ test('stale observation above the current window is dropped', () => {
 
 test('returns null when nothing is known', () => {
   expect(resolveCompactLine(ctxWith({ size: 1_000_000 }))).toBeNull();
+});
+
+test('configured trigger is capped at the context window', () => {
+  const line = resolveCompactLine(ctxWith({ size: 200_000, configured: 400_000 }));
+  expect(line).toEqual({ tokens: 200_000, source: 'configured' });
+});
+
+// ---- readAutoCompactWindow: env > modelSettings.<id> > top-level ----
+
+const withSettings = (user: object, project?: object) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hud-ac-'));
+  const cfg = path.join(root, 'cfg'); const cwd = path.join(root, 'proj');
+  fs.mkdirSync(cfg); fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(cfg, 'settings.json'), JSON.stringify(user));
+  if (project) fs.writeFileSync(path.join(cwd, '.claude', 'settings.json'), JSON.stringify(project));
+  return { root, cfg, cwd };
+};
+
+const readWith = (user: object, modelId: string, opts: { project?: object; env?: string } = {}) => {
+  const { root, cfg, cwd } = withSettings(user, opts.project);
+  const saved = { dir: process.env.CLAUDE_CONFIG_DIR, win: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW };
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  if (opts.env) process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = opts.env; else delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW;
+  try {
+    return readAutoCompactWindow(cwd, modelId);
+  } finally {
+    if (saved.dir === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved.dir;
+    if (saved.win === undefined) delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW; else process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = saved.win;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+test('/autocompact per-model value is read for the current model', () => {
+  const user = { autoCompactWindow: 600_000, modelSettings: { 'claude-opus-5-5': { autoCompactWindow: 400_000 } } };
+  expect(readWith(user, 'claude-opus-5-5')).toBe(400_000);
+  expect(readWith(user, 'claude-opus-5-5[1m]')).toBe(400_000);
+  expect(readWith(user, 'claude-sonnet-5-5')).toBe(600_000);
+});
+
+test('per-model "auto" means the built-in default, not the top-level value', () => {
+  const user = { autoCompactWindow: 600_000, modelSettings: { 'claude-opus-5-5': { autoCompactWindow: 'auto' } } };
+  expect(readWith(user, 'claude-opus-5-5')).toBeNull();
+});
+
+test('env var beats settings; project per-model beats user per-model', () => {
+  const user = { modelSettings: { 'claude-opus-5-5': { autoCompactWindow: 400_000 } } };
+  expect(readWith(user, 'claude-opus-5-5', { env: '300k' })).toBe(300_000);
+  expect(readWith(user, 'claude-opus-5-5', { project: { modelSettings: { 'claude-opus-5-5': { autoCompactWindow: 250_000 } } } })).toBe(250_000);
 });

@@ -9,14 +9,18 @@ const MAX_WINDOW = 1_000_000;
 
 /**
  * The auto-compact window as explicitly configured by the user, or null when
- * unset. Mirrors the CLI's resolution order for the sources visible to us:
+ * unset. Per the docs it is the trigger point ("how full the context window
+ * gets before Claude Code compacts"), not a window size. Mirrors the CLI's
+ * resolution order for the sources visible to us:
  * CLAUDE_CODE_AUTO_COMPACT_WINDOW env var (the statusline process inherits the
- * CLI's environment), then `autoCompactWindow` in settings, local > project >
- * user. Server-delivered (clientdata/experiment) and built-in model defaults
- * are intentionally NOT modeled — those are version-dependent internals; the
- * observed line from the transcript covers them instead.
+ * CLI's environment), then the per-model `modelSettings.<id>.autoCompactWindow`
+ * that `/autocompact` writes (CC ≥2.1.288), then the top-level
+ * `autoCompactWindow`; each in settings local > project > user. A per-model
+ * "auto" means the model's built-in default. Server-delivered and built-in
+ * model defaults are intentionally NOT modeled — those are version-dependent
+ * internals; the observed line from the transcript covers them instead.
  */
-export function readAutoCompactWindow(cwd?: string): number | null {
+export function readAutoCompactWindow(cwd?: string, modelId?: string): number | null {
   const fromEnv = parseWindowValue(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
   if (fromEnv !== null) return fromEnv;
 
@@ -27,12 +31,27 @@ export function readAutoCompactWindow(cwd?: string): number | null {
   }
   files.push(path.join(getClaudeConfigDir(), 'settings.json'));
 
+  const allSettings: Record<string, unknown>[] = [];
   for (const file of files) {
     try {
       const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const parsed = parseWindowValue(settings.autoCompactWindow);
-      if (parsed !== null) return parsed;
+      if (settings && typeof settings === 'object') allSettings.push(settings);
     } catch {}
+  }
+
+  const modelKeys = modelId ? [modelId, modelId.replace(/\[[^\]]*\]$/, '')] : [];
+  for (const settings of allSettings) {
+    const perModel = settings.modelSettings as Record<string, { autoCompactWindow?: unknown }> | undefined;
+    for (const key of modelKeys) {
+      const v = perModel?.[key]?.autoCompactWindow;
+      if (typeof v === 'string' && v.trim().toLowerCase() === 'auto') return null;
+      const parsed = parseWindowValue(v);
+      if (parsed !== null) return parsed;
+    }
+  }
+  for (const settings of allSettings) {
+    const parsed = parseWindowValue(settings.autoCompactWindow);
+    if (parsed !== null) return parsed;
   }
   return null;
 }
@@ -59,8 +78,7 @@ export function parseWindowValue(v: unknown): number | null {
 export interface CompactLine {
   tokens: number;
   /** 'observed' = learned from a trigger:"auto" compact_boundary in this
-   * session; 'configured' = estimated from env/settings (nominal window,
-   * actual trigger fires somewhat below it). */
+   * session; 'configured' = the trigger set in env/settings. */
   source: 'observed' | 'configured';
 }
 
@@ -79,7 +97,10 @@ export function resolveCompactLine(ctx: RenderContext): CompactLine | null {
   const observed = ctx.transcript.compactions?.lastAutoPreTokens;
   if (inWindow(observed)) return { tokens: observed, source: 'observed' };
 
+  // The CLI caps a configured trigger at the model's context window.
   const configured = ctx.autoCompactWindow;
-  if (typeof configured === 'number' && inWindow(configured)) return { tokens: configured, source: 'configured' };
+  if (typeof configured === 'number' && configured > 0) {
+    return { tokens: size > 0 ? Math.min(configured, size) : configured, source: 'configured' };
+  }
   return null;
 }
