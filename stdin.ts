@@ -94,10 +94,11 @@ export function getUsageFromStdin(stdin: StdinData): UsageData | null {
 }
 
 /** Gateway spend cap (CC ≥2.1.251). `used_percentage` is the only required field;
- * the dollar figures and period arrived in 2.1.284 and may be absent. */
+ * the dollar figures and period arrived in 2.1.284 and may be absent. Unlike the
+ * 5h/7d windows the percentage can exceed 100, so it is not capped. */
 function parseSpendLimit(v: NonNullable<StdinData['rate_limits']>['spend_limit']): SpendLimitData | null {
   if (!v) return null;
-  const percent = parsePercent(v.used_percentage);
+  const percent = parsePercent(v.used_percentage, Infinity);
   if (percent === null) return null;
   const usd = (n: number | null | undefined) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null);
   return {
@@ -115,9 +116,9 @@ export function getPermissionMode(stdin: StdinData): string | null {
   return m && m !== 'default' ? m : null;
 }
 
-function parsePercent(v: number | null | undefined): number | null {
+function parsePercent(v: number | null | undefined, max = 100): number | null {
   if (typeof v !== 'number' || !Number.isFinite(v)) return null;
-  return Math.round(Math.min(100, Math.max(0, v)));
+  return Math.round(Math.min(max, Math.max(0, v)));
 }
 
 function parseResetAt(v: number | null | undefined): Date | null {
