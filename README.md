@@ -10,7 +10,7 @@ All values are mock data:
 ```
 temp-workspace git:(main*) PR #128✓ · build-custom-hud · ⚑ plan · 2h 15m (act 1h 4m · api 21m)
 Context ███┊█░░░░░ 48% 1M ac@360k ×1  │  Usage ███░░░░░░░ 28% (resets in 3h 10m) | ████████░░ 84% (resets in 2d) | spend ██████░░░░ $314/$500 63% (monthly · resets 3d)
-$12.34  ·  in 480.0k  out 102.0k  cache 436.0k  ·  ↑24.3k/↓167 t/s
+$12.34  ·  last in 480.0k (436.0k cached)  out 1.2k  ·  ↑24.3k/↓167 t/s
 Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)
 v2.1.293 · 2 CLAUDE.md · 2 rules · 3 MCPs · 1 hooks · [Fable 5.1 | high·think | ⚡fast]
 Net ● 203.0.113.7 · US · SJC · clean
@@ -237,7 +237,7 @@ these files are resolved the same way by `index.ts` and `subagent-line.ts`.
 | `showConfigCounts` | `false` | CLAUDE.md, rules, MCPs, hooks counts |
 | `showSessionName` | `false` | Session slug or custom title from `/rename` |
 | `showClaudeCodeVersion` | `false` | CC version in the compact layout (expanded shows it on the env line) |
-| `showTokens` | `false` | Tokens line: cost, `in`/`out`/`cache` counts and (with `showSpeed`) throughput. Cost alone still shows when the counts are missing |
+| `showTokens` | `false` | Tokens line: cost, the last response's `in` (with its cache-read share) and `out` counts, and (with `showSpeed`) throughput. Cost alone still shows when the counts are missing |
 | `showConnectivity` | `false` | Connectivity line `Net ● 1.2.3.4 · US · LAX` from `api.anthropic.com/cdn-cgi/trace`. Makes a network request: checked at most once/15s in a **detached background process** so rendering never blocks; the line shows the last cached result (`●` green live, yellow stale, `offline` when unreachable) |
 | `connectivityUrl` | `https://api.anthropic.com/cdn-cgi/trace` | Trace endpoint to check (any Cloudflare `cdn-cgi/trace` URL) |
 | `ipdataApiKey` | `""` | [ipdata.co](https://ipdata.co) API key. **Keep the key out of the committed `config.json`** — put it in `config.local.json` (gitignored) or the `IPDATA_API_KEY` env var instead; a key in either is picked up automatically. Setting it (with `showConnectivity` on) is the switch that turns on the IP-reputation badge: `⚠ TOR`/`VPN`/`proxy`/`abuse`/`DC`/`anon` when flagged (red if ipdata marks it a threat, else yellow), with a trailing severity (`threat_score`, or `Nbl` = blocklist count on the free tier), and dim `clean` otherwise. Also cross-checks ipdata's country against the Cloudflare loc and appends `⚠ geo US≠JP` on a mismatch. Results are cached per-IP for a day in `ip-risk-cache.json`, so a stable IP costs ~1 lookup/day — far under the free 1500/day |
@@ -298,7 +298,7 @@ The palette follows one rule: one hue, one meaning — green/yellow/red are stat
 ```
 Line 1 (Project):    project git:(branch*) wt:name PR #128✓ · session-name · ⚑ plan · 2h 15m (act 1h 2m · api 21m)
 Line 2 (Context):    Context ███┊█░░░░░ 48% 1M ac@360k ×1  │  Usage ████░░░░░░ 28%
-Line 3 (Tokens):     $12.34  ·  in 44.0k  out 102.0k  cache 310.0k  ·  ↑120/↓45 t/s
+Line 3 (Tokens):     $12.34  ·  last in 354.0k (310.0k cached)  out 1.0k  ·  ↑120/↓45 t/s
 Line 4 (Cache):      Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)
 Line 5 (Env):        v2.1.293 · 2 CLAUDE.md · 4 rules · 3 MCPs · 1 hooks · [Model | effort·think | ⚡fast]
 Line 6 (Net):        Net ● 1.2.3.4 · US · LAX · clean            (showConnectivity only)
@@ -339,7 +339,7 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | **Per-agent cost** | Agent lines show estimated API-equivalent cost `\| $7.41` per subagent |
 | **Workflow fleets** | Workflow runs aggregate to one line: `◐ wf:name [model] (7/12 agents \| 1m \| 26k \| 419 tok/s) $3.10` |
 | **Session name** | From stdin `session_name` (`/rename`), falling back to the transcript `ai-title` |
-| **Token stats line** | Input, output, cache token counts + input/output speed |
+| **Token stats line** | Last response's input (cached share) and output tokens + input/output speed |
 | **CC version** | Claude Code version number leads the env line (from stdin, zero subprocess) |
 | **Real-time agent status** | Detects running/completed agents via transcript lifecycle analysis |
 | **Background agent detection** | Uses `queue-operation` events to track async agent completion |

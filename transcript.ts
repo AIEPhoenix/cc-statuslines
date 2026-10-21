@@ -375,6 +375,12 @@ function processEntry(
     return;
   }
 
+  // Only real turns carry tool activity. Other records can embed a copy of a
+  // message: `api-request-blob` (CC ≥2.1.30x) replays each request's messages
+  // without a timestamp, which would re-register every Agent/tool with
+  // startTime = now and drop the agentId learned from its tool_result.
+  if (entry.type !== 'user' && entry.type !== 'assistant') return;
+
   const content = entry.message?.content;
 
   // Teammate came to rest: an idle_notification arrives as a user-turn whose message
