@@ -106,7 +106,7 @@ interface JsonlLine {
   isSidechain?: boolean;
   isMeta?: boolean;
   isApiErrorMessage?: boolean;
-  message?: { usage?: AssistantUsage; model?: string; content?: unknown };
+  message?: { id?: string; usage?: AssistantUsage; model?: string; content?: unknown };
 }
 
 /** A real prompt that starts a turn (human input or an injected wake-up),
@@ -138,6 +138,9 @@ async function scanRequests(jsonlPath: string): Promise<ScanResult> {
   let turnStartMs: number | null = null;
   let lastEventMs: number | null = null;
   let firstEventMs: number | null = null;
+  // One API response with several content blocks is written as several
+  // assistant records that all repeat the same message id and usage.
+  const seenMessageIds = new Set<string>();
 
   try {
     const rl = readline.createInterface({ input: fs.createReadStream(jsonlPath), crlfDelay: Infinity });
@@ -165,6 +168,11 @@ async function scanRequests(jsonlPath: string): Promise<ScanResult> {
       if (e.type === 'user' && ts !== null) { lastUserMs = ts; continue; }
 
       if (e.type === 'assistant' && e.message?.usage && ts !== null) {
+        const messageId = e.message.id;
+        if (messageId) {
+          if (seenMessageIds.has(messageId)) continue;
+          seenMessageIds.add(messageId);
+        }
         if (!model && typeof e.message.model === 'string') model = e.message.model;
         const u = e.message.usage;
         const interval = lastUserMs !== null && ts > lastUserMs ? { startMs: lastUserMs, endMs: ts } : null;

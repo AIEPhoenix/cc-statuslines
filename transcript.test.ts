@@ -255,3 +255,19 @@ test('compactions survive the transcript cache round-trip', async () => {
   expect(second.compactions?.lastAutoPreTokens).toBe(360_000);
   expect(second.compactions?.lastTime).toBeInstanceOf(Date);
 });
+
+// ---- records that embed a copy of a message ----
+
+test('api-request-blob replays do not reset a running background agent', async () => {
+  const p = writeTranscript([
+    agentUse('b1', { subagent_type: 'claude-code-guide', description: 'Docs' }, T(0)),
+    asyncLaunched('b1', 'agent-b1', T(1)),
+    // Replay of the same request, written without a timestamp (CC ≥2.1.30x).
+    { type: 'api-request-blob', sessionId: 's', hash: 'h1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'b1', name: 'Agent', input: { subagent_type: 'claude-code-guide', description: 'Docs' } }] } },
+    { type: 'api-request-blob', sessionId: 's', hash: 'h2', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'b1' }] } },
+  ]);
+  const a = byDesc((await parseTranscript(p)).agents, 'Docs');
+  expect(a.status).toBe('running');
+  expect(a.agentId).toBe('agent-b1');
+  expect(a.startTime.toISOString()).toBe(T(0));
+});
