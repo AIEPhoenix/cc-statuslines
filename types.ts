@@ -255,6 +255,8 @@ export interface RenderContext {
   claudeCodeVersion?: string;
   /** Auto-compact window configured via env/settings, in tokens (null when unset). */
   autoCompactWindow?: number | null;
+  /** CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (1–<100), or null when unset/ineffective. */
+  autoCompactPct?: number | null;
   /** Cached connectivity result, or null when disabled/never checked. */
   connectivity?: ConnectivityInfo | null;
 }

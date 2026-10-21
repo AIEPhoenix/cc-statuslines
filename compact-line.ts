@@ -21,7 +21,7 @@ const MAX_WINDOW = 1_000_000;
  * internals; the observed line from the transcript covers them instead.
  */
 export function readAutoCompactWindow(cwd?: string, modelId?: string): number | null {
-  const fromEnv = parseWindowValue(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
+  const fromEnv = parseWindowValue(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, { clamp: true });
   if (fromEnv !== null) return fromEnv;
 
   const files: string[] = [];
@@ -56,8 +56,12 @@ export function readAutoCompactWindow(cwd?: string, modelId?: string): number | 
   return null;
 }
 
-/** Accepts 200000, "200000", "500k", "1m"; "auto"/invalid/out-of-range → null. */
-export function parseWindowValue(v: unknown): number | null {
+/**
+ * Accepts 200000, "200000", "500k", "1m"; "auto"/invalid → null. Out of range
+ * is null, or with `clamp` pulled to 100k–1M: the CLI does that (with a
+ * warning) for CLAUDE_CODE_AUTO_COMPACT_WINDOW, so "200" means 100k there.
+ */
+export function parseWindowValue(v: unknown, opts: { clamp?: boolean } = {}): number | null {
   let n: number;
   if (typeof v === 'number') {
     n = v;
@@ -72,7 +76,20 @@ export function parseWindowValue(v: unknown): number | null {
   }
   if (!Number.isFinite(n)) return null;
   n = Math.round(n);
+  if (opts.clamp) return n > 0 ? Math.min(MAX_WINDOW, Math.max(MIN_WINDOW, n)) : null;
   return n >= MIN_WINDOW && n <= MAX_WINDOW ? n : null;
+}
+
+/**
+ * CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: the percentage (1–100) of the auto-compact
+ * window at which compaction triggers. It can only lower the trigger, so 100
+ * and anything invalid → null.
+ */
+export function readAutoCompactPct(): number | null {
+  const raw = process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE?.trim();
+  if (!raw || !/^\d+(?:\.\d+)?$/.test(raw)) return null;
+  const pct = parseFloat(raw);
+  return pct >= 1 && pct < 100 ? pct : null;
 }
 
 export interface CompactLine {
@@ -100,7 +117,12 @@ export function resolveCompactLine(ctx: RenderContext): CompactLine | null {
   // The CLI caps a configured trigger at the model's context window.
   const configured = ctx.autoCompactWindow;
   if (typeof configured === 'number' && configured > 0) {
-    return { tokens: size > 0 ? Math.min(configured, size) : configured, source: 'configured' };
+    const window = size > 0 ? Math.min(configured, size) : configured;
+    // The percentage override only applies when the session compacts before
+    // the model's context limit; a window capped at the limit does not.
+    const pct = ctx.autoCompactPct;
+    const scaled = typeof pct === 'number' && (size <= 0 || window < size) ? Math.round(window * pct / 100) : window;
+    return { tokens: scaled, source: 'configured' };
   }
   return null;
 }

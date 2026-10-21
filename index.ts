@@ -1,5 +1,5 @@
 import { readStdin, getUsageFromStdin } from './stdin.ts';
-import { readAutoCompactWindow } from './compact-line.ts';
+import { readAutoCompactWindow, readAutoCompactPct } from './compact-line.ts';
 import { readConnectivity, scheduleRefresh } from './connectivity.ts';
 import { parseTranscript } from './transcript.ts';
 import { render } from './render/index.ts';
@@ -72,6 +72,7 @@ async function main(): Promise<void> {
       extraLabel: null,
       claudeCodeVersion,
       autoCompactWindow: config.display.showCompactLine ? readAutoCompactWindow(stdin.cwd, stdin.model?.id) : null,
+      autoCompactPct: config.display.showCompactLine ? readAutoCompactPct() : null,
       connectivity,
     };
 
