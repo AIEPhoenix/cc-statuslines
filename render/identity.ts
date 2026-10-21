@@ -12,9 +12,8 @@ export function renderIdentityLine(ctx: RenderContext): string {
 
   const compact = display?.showCompactLine !== false ? resolveCompactLine(ctx) : null;
   const size = ctx.stdin.context_window?.context_window_size ?? 0;
-  // Only an observed line earns a tick: a configured window is nominal (the
-  // real trigger fires well below it), so drawing it would imply false precision.
-  const markerPercent = compact?.source === 'observed' && size > 0 ? (compact.tokens / size) * 100 : null;
+  // Both an observed line and a configured trigger earn a tick on the bar.
+  const markerPercent = compact && size > 0 ? (compact.tokens / size) * 100 : null;
 
   // The synthetic autocompact buffer approximated "distance to compaction"
   // before the line was knowable; with a real tick on the bar, fill and marker
@@ -32,8 +31,8 @@ export function renderIdentityLine(ctx: RenderContext): string {
     : `${label('Context', colors)} ${cvDisplay}`;
 
   if (compact) {
-    // "ac@360k" = observed auto-compact line; "ac≈500k" = configured window,
-    // the actual trigger fires somewhat below it. "×2" = compactions so far.
+    // "ac@360k" = observed auto-compact line; "ac≈500k" = configured trigger,
+    // not yet confirmed by a compaction in this session. "×2" = compactions so far.
     const count = ctx.transcript.compactions?.count ?? 0;
     const sep = compact.source === 'observed' ? '@' : '≈';
     line += dim(` ac${sep}${fmtTokens(compact.tokens)}${count > 0 ? ` ×${count}` : ''}`);
