@@ -229,7 +229,7 @@ these files are resolved the same way by `index.ts` and `subagent-line.ts`.
 | `showCompactLine` | `true` | Auto-compact line: `ac@360k ×1` with a `┊` tick on the bar once observed from this session's compactions; `ac≈500k` (text only — the nominal window, actual trigger fires below it) when estimated from `autoCompactWindow` in settings / `CLAUDE_CODE_AUTO_COMPACT_WINDOW` |
 | `contextValue` | `"percent"` | `"percent"`, `"tokens"`, `"remaining"`, or `"both"` |
 | `autocompactBuffer` | `"enabled"` | `"enabled"` pads the context fill with a synthetic auto-compact reserve (up to 16.5% of the window, scaled in from 5% usage) so the bar reads as "distance to compaction" when the real line is unknown; `"disabled"` draws raw tokens/window. Ignored once an observed `ac@` line puts a real tick on the bar |
-| `showUsage` | `true` | 5h/7d rate limit usage. A gateway spend cap (`rate_limits.spend_limit`, CC ≥2.1.251; dollar figures ≥2.1.284) renders as `spend ██████░░░░ $314/$500 63% (monthly · resets 3d)`, alone or after the 5h/7d windows, and counts toward `⚠ Limit reached` at 100% |
+| `showUsage` | `true` | 5h/7d rate limit usage. A gateway spend cap (`rate_limits.spend_limit`, CC ≥2.1.251; dollar figures ≥2.1.284) renders as `spend ██████░░░░ $314/$500 63% (monthly · resets 3d)`, alone or after the 5h/7d windows, and at 100% or more (the cap can be overrun) shows as `⚠ spend ██████████ $522/$500 104% (…)` with its real percentage |
 | `usageBarEnabled` | `true` | Visual bar for usage (vs text only) |
 | `showDuration` | `false` | Wall-clock ⊃ active (input gaps excluded) ⊃ API time: `2h 9m (act 1h 2m · api 21m)` |
 | `showSpeed` | `false` | `↑24.3k/↓167 t/s` input/output throughput on the tokens line, from the transcript |
