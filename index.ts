@@ -71,7 +71,7 @@ async function main(): Promise<void> {
       config,
       extraLabel: null,
       claudeCodeVersion,
-      autoCompactWindow: config.display.showCompactLine ? readAutoCompactWindow(stdin.cwd) : null,
+      autoCompactWindow: config.display.showCompactLine ? readAutoCompactWindow(stdin.cwd, stdin.model?.id) : null,
       connectivity,
     };
 
