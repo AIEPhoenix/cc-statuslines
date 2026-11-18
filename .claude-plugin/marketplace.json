@@ -1,0 +1,11 @@
+{
+  "name": "cc-statuslines",
+  "owner": { "name": "AIEPhoenix" },
+  "plugins": [
+    {
+      "name": "cc-statuslines",
+      "source": "./",
+      "description": "Claude Code HUD: a multi-line status line plus a mod that draws agent-panel rows and feeds the status line exact figures"
+    }
+  ]
+}

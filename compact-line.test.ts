@@ -129,3 +129,13 @@ test('readAutoCompactPct accepts 1 to under 100 only', () => {
     if (saved === undefined) delete process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE; else process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = saved;
   }
 });
+
+test('the engine trigger from the mod beats observed and configured lines', () => {
+  const ctx = { ...ctxWith({ size: 1_000_000, observed: 360_000, configured: 500_000 }), engineAutoCompact: { threshold: 967_000, enabled: true } } as RenderContext;
+  expect(resolveCompactLine(ctx)).toEqual({ tokens: 967_000, source: 'engine' });
+});
+
+test('auto-compact turned off in the engine draws no line', () => {
+  const ctx = { ...ctxWith({ size: 1_000_000, configured: 500_000 }), engineAutoCompact: { threshold: 967_000, enabled: false } } as RenderContext;
+  expect(resolveCompactLine(ctx)).toBeNull();
+});

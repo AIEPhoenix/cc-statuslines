@@ -1,0 +1,6 @@
+{
+  "name": "cc-statuslines",
+  "version": "9.0.0",
+  "description": "Claude Code HUD: a multi-line status line plus a mod that draws agent-panel rows and feeds the status line exact figures",
+  "license": "MIT"
+}

@@ -1,0 +1,66 @@
+import { test, expect, afterAll } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+// Isolate the hud dir (getHudDir() = CLAUDE_CONFIG_DIR/hud).
+const CFG = fs.mkdtempSync(path.join(os.tmpdir(), 'hud-state-'));
+process.env.CLAUDE_CONFIG_DIR = CFG;
+afterAll(() => { fs.rmSync(CFG, { recursive: true, force: true }); });
+
+const { readSnapshot, applySnapshot } = await import('./hud-state.ts');
+const { SNAPSHOT_VERSION } = await import('./mod/snapshot.ts');
+import type { HudSnapshot } from './mod/snapshot.ts';
+import type { TranscriptData } from './types.ts';
+
+const now = 1_800_000_000_000;
+const SID = '11111111-2222-3333-4444-555555555555';
+
+function writeSnap(s: Partial<HudSnapshot>): void {
+  const dir = path.join(CFG, 'hud', 'state');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${SID}.json`), JSON.stringify({ v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [], ...s }));
+}
+
+const emptyTranscript = (): TranscriptData => ({ tools: [], agents: [], workflows: [], todos: [] }) as unknown as TranscriptData;
+
+test('reads a fresh snapshot for the session', () => {
+  writeSnap({ activeMs: 5000 });
+  expect(readSnapshot(SID, now + 1000)?.activeMs).toBe(5000);
+});
+
+test('ignores a stale snapshot, another session, or no session id', () => {
+  writeSnap({});
+  expect(readSnapshot(SID, now + 61_000)).toBeNull();
+  expect(readSnapshot('other-session', now)).toBeNull();
+  expect(readSnapshot(undefined, now)).toBeNull();
+});
+
+test('ignores a snapshot of another version', () => {
+  writeSnap({ v: 99 as typeof SNAPSHOT_VERSION });
+  expect(readSnapshot(SID, now)).toBeNull();
+});
+
+test('active time adds the turn in progress; speed comes from the engine', () => {
+  const t = emptyTranscript();
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 60_000, turnStartedAt: now - 5_000, speed: { inputTokensPerSec: 900, outputTokensPerSec: 42 }, agents: [] }, now);
+  expect(t.activeDurationMs).toBe(65_000);
+  expect(t.outputTokensPerSec).toBe(42);
+  expect(t.inputTokensPerSec).toBe(900);
+});
+
+test('engine agent status, model, rate and cost override the transcript; unknown agents are added', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 'tool-1', agentId: 'a1', type: 'Explore', status: 'idle', startTime: new Date(now - 60_000), endTime: new Date(now - 1000), costUsd: 0.5 });
+  applySnapshot(t, {
+    v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0,
+    agents: [
+      { id: 'a1', type: 'Explore', description: 'Scan', status: 'running', startTime: now - 60_000, model: 'claude-haiku-5-5', outputTokensPerSec: 80, costUsd: 0.75 },
+      { id: 'a2', type: 'oracle', description: 'Review', status: 'killed', startTime: now - 10_000 },
+    ],
+  }, now);
+  const [a1, a2] = t.agents;
+  expect(a1).toMatchObject({ status: 'running', model: 'claude-haiku-5-5', outputTokensPerSec: 80, costUsd: 0.75 });
+  expect(a1!.endTime).toBeUndefined();
+  expect(a2).toMatchObject({ agentId: 'a2', type: 'oracle', description: 'Review', status: 'stopped' });
+});

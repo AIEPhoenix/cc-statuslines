@@ -2,6 +2,7 @@ import { readStdin, getUsageFromStdin } from './stdin.ts';
 import { readAutoCompactWindow, readAutoCompactPct } from './compact-line.ts';
 import { readConnectivity, scheduleRefresh } from './connectivity.ts';
 import { parseTranscript } from './transcript.ts';
+import { readSnapshot, applySnapshot } from './hud-state.ts';
 import { render } from './render/index.ts';
 import { countConfigs } from './config-reader.ts';
 import { getGitStatus } from './git.ts';
@@ -22,6 +23,10 @@ async function main(): Promise<void> {
 
     const transcriptPath = stdin.transcript_path ?? '';
     const transcript = await parseTranscript(transcriptPath);
+    // Exact figures from the HUD mod, when the plugin is installed; otherwise
+    // the transcript-derived estimates stand.
+    const snapshot = readSnapshot(stdin.session_id);
+    if (snapshot) applySnapshot(transcript, snapshot);
     const { claudeMdCount, rulesCount, mcpCount, hooksCount } = await countConfigs(stdin.cwd);
     const config = await loadConfig();
     const gitStatus = config.gitStatus.enabled ? await getGitStatus(stdin.cwd) : null;
@@ -73,6 +78,7 @@ async function main(): Promise<void> {
       claudeCodeVersion,
       autoCompactWindow: config.display.showCompactLine ? readAutoCompactWindow(stdin.cwd, stdin.model?.id) : null,
       autoCompactPct: config.display.showCompactLine ? readAutoCompactPct() : null,
+      engineAutoCompact: snapshot?.autoCompact ?? null,
       connectivity,
     };
 

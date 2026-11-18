@@ -92,7 +92,8 @@ export function fmtModel(m: string): string {
   const match = m.toLowerCase().match(/(opus|sonnet|haiku|fable)[-_ ]?(\d+(?:[-.]\d+)?)?/);
   if (!match) return m;
   const ver = match[2]?.replace('-', '.');
-  return ver ? `${match[1]} ${ver}` : match[1];
+  const family = match[1] ?? m;
+  return ver ? `${family} ${ver}` : family;
 }
 
 export { fmtTokens as fmtAgentTokens };
