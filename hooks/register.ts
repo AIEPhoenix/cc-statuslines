@@ -287,7 +287,7 @@ async function writeLauncher($: Dollar): Promise<void> {
     '// Written by the cc-statuslines mod at each session start; edits are overwritten.',
     '// The statusLine setting runs this file, so plugin updates never break it.',
     "import { existsSync } from 'node:fs';",
-    `const targets = ${JSON.stringify([target, `${hudDir}/index.ts`])};`,
+    `const targets = ${JSON.stringify([...new Set([target, `${hudDir}/index.ts`])])};`,
     "const entry = targets.find(t => existsSync(t));",
     "if (entry) await import(entry);",
     "else console.log('[hud] cc-statuslines not found: reinstall the plugin or run /hud-setup');",
