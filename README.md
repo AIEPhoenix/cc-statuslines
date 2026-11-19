@@ -108,7 +108,7 @@ duration, agent timers and the prompt-cache countdown tick in real time.
 
 To load the mod from this clone too, add the folder as a marketplace and install
 from it: `claude plugin marketplace add ~/.claude/hud`, then
-`/plugin install cc-statuslines --marketplace cc-statuslines`.
+`claude plugin install cc-statuslines@cc-statuslines`.
 
 `subagent-line.ts`, the old `subagentStatusLine` entry, is kept for setups that
 cannot load the mod; Claude Code has deprecated that setting.

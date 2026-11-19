@@ -107,17 +107,24 @@ function outputTokens(a: { usage?: readonly { output_tokens: number }[] }): numb
  * request lands, so samples are kept where it changes and the rate is taken
  * between the oldest and newest change in the window: output per second of
  * the agent's work (tool time included), steady across long requests.
+ *
+ * Only the tick records samples and stop times, from `$.agent.list()`: a
+ * row's props can be seconds older, and mixing the two feeds would read a
+ * stale count as a drop.
  */
-function sampleRate(id: string, out: number, now: number, isLive: boolean): number | undefined {
+function recordSample(id: string, out: number, now: number): void {
   const hist = outputHistory.get(id) ?? []
   const last = hist.at(-1)
   if (!last || out > last.out) hist.push({ t: now, out })
-  else if (out < last.out) hist.splice(0, hist.length, { t: now, out }) // the ledger started over
   while (hist.length > 2 && now - (hist[0]?.t ?? now) > RATE_WINDOW_MS) hist.shift()
   outputHistory.set(id, hist)
-  const first = hist[0]
-  const newest = hist.at(-1)
-  if (!isLive || !first || !newest || hist.length < 2) return undefined
+}
+
+function currentRate(id: string, isLive: boolean): number | undefined {
+  const hist = outputHistory.get(id)
+  const first = hist?.[0]
+  const newest = hist?.at(-1)
+  if (!isLive || !hist || !first || !newest || hist.length < 2) return undefined
   const dt = (newest.t - first.t) / 1000
   const d = newest.out - first.out
   return dt >= 2 && d > 0 ? d / dt : undefined
@@ -126,7 +133,8 @@ function sampleRate(id: string, out: number, now: number, isLive: boolean): numb
 function toSnapshotAgent(a: AgentInfo, now: number): SnapshotAgent {
   const out = outputTokens(a)
   const live = LIVE.has(a.status)
-  const rate = sampleRate(a.id, out, now, live)
+  recordSample(a.id, out, now)
+  const rate = currentRate(a.id, live)
   const endTime = noteStatus(a.id, live, now, a.lastRequest?.at)
   return {
     id: a.id,
@@ -177,10 +185,9 @@ export const register: Register = on => {
   on('ui.render', { component: 'AgentRow' }, ($, e, next) => {
     const p = e.props
     const now = Date.now()
-    const out = outputTokens(p)
     const live = LIVE.has(p.status)
-    // A stopped agent's elapsed time ends where it stopped.
-    const shownAt = noteStatus(p.id, live, now, p.lastRequest?.at) ?? now
+    // A stopped agent's elapsed time ends where the tick saw it stop.
+    const shownAt = live ? now : endedAt.get(p.id) ?? now
     const row = formatAgentRow({
       id: p.id,
       name: p.name,
@@ -192,7 +199,7 @@ export const register: Register = on => {
       effort: p.effort,
       contextWindowSize: p.contextWindowSize,
       tokenCount: p.tokenCount,
-      outputTokensPerSec: sampleRate(p.id, out, now, live),
+      outputTokensPerSec: currentRate(p.id, live),
       costUsd: p.cost?.usd,
     }, shownAt, colors)
     // `columns` is a top-level row's width; a nested row's connector takes two a level.
@@ -392,7 +399,16 @@ async function findBun($: Dollar): Promise<string> {
     const run = await $.process.run([shell, '-ilc', 'command -v bun'], { timeoutMs: 5_000 })
     // rc files may print; take the last line that is a path.
     const found = run.stdout.split('\n').map(l => l.trim()).filter(l => l.startsWith('/')).at(-1)
-    if (run.exitCode === 0 && found) return found
+    if (run.exitCode === 0 && found) {
+      // mise resolves to a versioned install folder that an upgrade removes;
+      // its `latest` alias beside it stays.
+      const pinned = /^(.*\/mise\/installs\/bun\/)[^/]+(\/bin\/bun)$/.exec(found)
+      if (pinned) {
+        const latest = `${pinned[1]}latest${pinned[2]}`
+        try { if (await $.fs.exists(latest)) return latest } catch { /* keep found */ }
+      }
+      return found
+    }
   } catch { /* try the fixed locations */ }
   const homeDirs = home ? [`${home}/.bun/bin/bun`, `${home}/.local/share/mise/shims/bun`] : []
   for (const p of [...homeDirs, '/opt/homebrew/bin/bun', '/usr/local/bin/bun']) {
