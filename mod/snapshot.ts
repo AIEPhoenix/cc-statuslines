@@ -33,6 +33,11 @@ export interface HudSnapshot {
   v: typeof SNAPSHOT_VERSION;
   sessionId: string;
   writtenAt: number;
+  /** When this mod module loaded. An agent started after it has its whole
+   * cost in the engine's ledger, which starts over with the process. */
+  loadedAt?: number;
+  /** When `agents` was last read from the engine (it is cached between writes). */
+  agentsAt?: number;
   /** The engine's own auto-compact trigger, in tokens. */
   autoCompact?: { threshold: number; enabled: boolean };
   /** Main-loop time spent in turns, excluding time waiting for the person. */

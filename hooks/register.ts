@@ -10,7 +10,7 @@
  *    (plugins cannot write Claude Code's settings files) and keeps the
  *    stable launcher it points at up to date.
  */
-import type { Hook, Register } from 'claude-code'
+import type { AgentInfo, Hook, Register } from 'claude-code'
 
 import { formatAgentRow, fitRow } from '../render/agent-row.ts'
 import {
@@ -20,20 +20,6 @@ import {
   type SnapshotAgent,
 } from '../mod/snapshot.ts'
 
-type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
-type AgentLike = {
-  id: string
-  type: string
-  name?: string
-  description: string
-  status: SnapshotAgent['status']
-  startTime: number
-  model?: string
-  usage?: readonly Usage[]
-  cost?: { usd: number }
-  parentId?: string
-  lastRequest?: { at: number }
-}
 
 const LAUNCHER = 'statusline.ts'
 const RATE_WINDOW_MS = 30_000
@@ -60,6 +46,10 @@ const outputHistory = new Map<string, Array<{ t: number; out: number }>>()
 const endedAt = new Map<string, number>()
 /** Each listed agent's parent, for a nested row's depth. */
 const parentOf = new Map<string, string>()
+/** Agents this module has seen running: their stop was watched, to within a tick. */
+const seenLive = new Set<string>()
+const loadedAt = Date.now()
+let agentsAt: number | undefined
 let autoCompactAt = 0
 
 /** A new conversation in the same process (/clear, an in-process resume): start over. */
@@ -71,24 +61,27 @@ function resetSessionState(): void {
   reqOut = 0
   reqCount = 0
   agents = []
+  agentsAt = undefined
   lastWritten = ''
   outputHistory.clear()
   endedAt.clear()
   parentOf.clear()
+  seenLive.clear()
 }
 
 /**
  * Notes whether an agent runs and returns when it stopped. The engine gives
- * no end time: the first time this module sees it stopped, its last model
- * request is the closest stand-in (right after a reload, or for an agent
- * first seen finished, "now" would inflate its duration).
+ * no end time. An agent this module watched stop ended "now", to within a
+ * tick; one first seen already stopped (after a reload) ended some time
+ * ago, and the start of its last model request is the closest stand-in.
  */
 function noteStatus(id: string, live: boolean, now: number, lastRequestAt?: number): number | undefined {
   if (live) {
     endedAt.delete(id)
+    seenLive.add(id)
     return undefined
   }
-  if (!endedAt.has(id)) endedAt.set(id, lastRequestAt ?? now)
+  if (!endedAt.has(id)) endedAt.set(id, seenLive.has(id) ? now : lastRequestAt ?? now)
   return endedAt.get(id)
 }
 
@@ -100,7 +93,7 @@ function depthOf(id: string): number {
 
 const LIVE = new Set(['running', 'pending', 'waiting'])
 
-function outputTokens(a: { usage?: readonly Usage[] }): number {
+function outputTokens(a: { usage?: readonly { output_tokens: number }[] }): number {
   return (a.usage ?? []).reduce((n, u) => n + (u.output_tokens ?? 0), 0)
 }
 
@@ -118,7 +111,7 @@ function sampleRate(id: string, out: number, now: number, isLive: boolean): numb
   return dt >= 2 && d > 0 ? d / dt : undefined
 }
 
-function toSnapshotAgent(a: AgentLike, now: number): SnapshotAgent {
+function toSnapshotAgent(a: AgentInfo, now: number): SnapshotAgent {
   const out = outputTokens(a)
   const live = LIVE.has(a.status)
   const rate = sampleRate(a.id, out, now, live)
@@ -138,12 +131,13 @@ function toSnapshotAgent(a: AgentLike, now: number): SnapshotAgent {
 }
 
 async function resolveHudDir($: Dollar): Promise<string | undefined> {
+  // As config.ts resolves it on the status line side (os.homedir there).
   const configDir = (await $.env.get('CLAUDE_CONFIG_DIR'))?.trim()
-  const home = (await $.env.get('HOME'))?.trim()
+  const home = (await $.env.get('HOME'))?.trim() || (await $.env.get('USERPROFILE'))?.trim()
   if (configDir) {
-    if (configDir === '~' && home) return `${home}/hud`
-    if (configDir.startsWith('~/') && home) return `${home}/${configDir.slice(2)}/hud`
-    return `${configDir.replace(/\/+$/, '')}/hud`
+    if (configDir === '~') return home ? `${home}/hud` : undefined
+    if (configDir.startsWith('~/') || configDir.startsWith('~\\')) return home ? `${home}/${configDir.slice(2)}/hud` : undefined
+    return `${configDir.replace(/[\\/]+$/, '')}/hud`
   }
   return home ? `${home}/.claude/hud` : undefined
 }
@@ -151,11 +145,6 @@ async function resolveHudDir($: Dollar): Promise<string | undefined> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    hudDir = await resolveHudDir($)
-    sessionId = await $.session.id()
-    colors = await readColorsSetting($)
-    await writeLauncher($)
-    await refreshAutoCompact($)
     // session.start runs again on a re-enable or respawn: keep one ticker.
     ticker?.cancel()
     ticker = $.clock.every(TICK_MS, () => { void tick($) })
@@ -165,6 +154,9 @@ export const register: Register = on => {
         description: 'Show the statusLine setting that runs this HUD plugin',
       })
     } catch { /* already registered by an earlier run */ }
+    // The first session.start is awaited before the first prompt: the rest
+    // does not hold it up, and a failure there costs neither of the above.
+    void init($)
     return result
   })
 
@@ -259,22 +251,28 @@ export const register: Register = on => {
     if (!bunPath) {
       return { text: 'Bun was not found on PATH. Install it (https://bun.sh), then run /hud-setup again.' }
     }
-    if (!hudDir) return { text: 'Could not resolve the Claude config directory; nothing written.' }
+    hudDir ??= await resolveHudDir($).catch(() => undefined)
+    if (!hudDir) return { text: 'Could not resolve the Claude config directory.' }
+    const hasLauncher = await writeLauncher($)
     const command = `${shellQuote(bunPath)} --env-file /dev/null ${shellQuote(`${hudDir}/${LAUNCHER}`)}`
     const wanted = { type: 'command', command, refreshInterval: 5 }
-    const settingsPath = hudDir ? hudDir.replace(/\/hud$/, '/settings.json') : undefined
+    const settingsPath = hudDir.replace(/\/hud$/, '/settings.json')
     const user = await $.settings.read({ source: 'user' }) as Record<string, unknown>
     const current = user.statusLine
     const hasLegacySubagentLine = user.subagentStatusLine !== undefined
 
     const lines = [
-      `settings file: ${settingsPath ?? '(unknown)'}`,
+      `settings file: ${settingsPath}`,
       `current statusLine: ${current === undefined ? '(none)' : JSON.stringify(current)}`,
       `new statusLine:     ${JSON.stringify(wanted)}`,
     ]
     if (hasLegacySubagentLine) lines.push('subagentStatusLine: will be removed (this plugin draws the agent rows now)')
     const cur = (current ?? {}) as Record<string, unknown>
     const isCurrent = cur.type === wanted.type && cur.command === wanted.command && cur.refreshInterval === wanted.refreshInterval
+    if (!hasLauncher) {
+      lines.push('', `Could not write ${hudDir}/${LAUNCHER}, which this command runs: check that the folder is writable, then run /hud-setup again.`)
+      return { text: lines.join('\n') }
+    }
     if (isCurrent && !hasLegacySubagentLine) {
       lines.push('', 'Already set up; nothing to change.')
       return { text: lines.join('\n') }
@@ -284,7 +282,7 @@ export const register: Register = on => {
     // change is shown for the person (or Claude, asked to) to make.
     lines.push(
       '',
-      `Make this change in ${settingsPath ?? '~/.claude/settings.json'} (plugins cannot write settings):`,
+      `Make this change in ${settingsPath} (plugins cannot write settings):`,
       `  "statusLine": ${JSON.stringify(wanted)}`,
       ...(hasLegacySubagentLine ? ['  and delete the "subagentStatusLine" entry'] : []),
       'Or ask Claude: "apply the /hud-setup change to my settings".',
@@ -315,11 +313,12 @@ async function readColorsSetting($: Dollar): Promise<boolean> {
 /**
  * The statusLine command runs `${hudDir}/statusline.ts`, a stable path that
  * survives plugin updates (the plugin's own folder is versioned and replaced).
- * Rewritten at each session start to load index.ts from wherever the plugin
- * is now, falling back to a clone at `${hudDir}/index.ts`.
+ * Rewritten at each session start and by /hud-setup to load index.ts from
+ * wherever the plugin is now, falling back to a clone at `${hudDir}/index.ts`.
+ * @returns whether the launcher is in place
  */
-async function writeLauncher($: Dollar): Promise<void> {
-  if (!hudDir) return
+async function writeLauncher($: Dollar): Promise<boolean> {
+  if (!hudDir) return false
   const target = `${$.plugin.root}/index.ts`
   const body = [
     '// Written by the cc-statuslines mod at each session start; edits are overwritten.',
@@ -335,7 +334,20 @@ async function writeLauncher($: Dollar): Promise<void> {
     const path = `${hudDir}/${LAUNCHER}`
     const old = await $.fs.exists(path) ? await $.fs.read(path) : ''
     if (old !== body) await $.fs.write(path, body)
-  } catch { /* /hud-setup reports a missing launcher on its next run */ }
+    return true
+  } catch {
+    return false // /hud-setup says so
+  }
+}
+
+async function init($: Dollar): Promise<void> {
+  try {
+    hudDir = await resolveHudDir($)
+    sessionId ??= await $.session.id()
+    colors = await readColorsSetting($)
+    await Promise.all([writeLauncher($), refreshAutoCompact($)])
+    await write($)
+  } catch { /* the tick retries what it needs */ }
 }
 
 async function refreshAutoCompact($: Dollar): Promise<void> {
@@ -390,12 +402,14 @@ async function tick($: Dollar): Promise<void> {
     const now = Date.now()
     const listed = await $.agent.list()
     for (const a of listed) if (a.parentId !== undefined) parentOf.set(a.id, a.parentId)
-    agents = listed.map(a => toSnapshotAgent(a as AgentLike, now))
+    agents = listed.map(a => toSnapshotAgent(a, now))
+    agentsAt = now
     // Forget agents the engine no longer lists, so long sessions stay small.
     const ids = new Set(listed.map(a => a.id))
     for (const id of outputHistory.keys()) if (!ids.has(id)) outputHistory.delete(id)
     for (const id of endedAt.keys()) if (!ids.has(id)) endedAt.delete(id)
     for (const id of parentOf.keys()) if (!ids.has(id)) parentOf.delete(id)
+    for (const id of seenLive) if (!ids.has(id)) seenLive.delete(id)
   } catch { /* keep the last list */ }
   await write($)
 }
@@ -408,9 +422,11 @@ function write($: Dollar): Promise<void> {
 
 async function writeNow($: Dollar): Promise<void> {
   if (!hudDir || !sessionId) return
-  const snapshot: Omit<HudSnapshot, 'writtenAt'> = {
+  // agentsAt moves every tick: left out of the body compared below.
+  const snapshot: Omit<HudSnapshot, 'writtenAt' | 'agentsAt'> = {
     v: SNAPSHOT_VERSION,
     sessionId,
+    loadedAt,
     ...(autoCompact ? { autoCompact } : {}),
     activeMs,
     ...(turnStartedAt !== undefined ? { turnStartedAt } : {}),
@@ -422,7 +438,7 @@ async function writeNow($: Dollar): Promise<void> {
   // Unchanged content is still rewritten every 30 s so the reader sees it is fresh.
   if (body === lastWritten && now - lastWriteAt < 30_000) return
   try {
-    await $.fs.write(`${hudDir}/state/${snapshotFileName(sessionId)}`, JSON.stringify({ ...snapshot, writtenAt: now }) + '\n')
+    await $.fs.write(`${hudDir}/state/${snapshotFileName(sessionId)}`, JSON.stringify({ ...snapshot, ...(agentsAt !== undefined ? { agentsAt } : {}), writtenAt: now }) + '\n')
     // Marked only once written, so a failed write is retried on the next tick.
     lastWritten = body
     lastWriteAt = now

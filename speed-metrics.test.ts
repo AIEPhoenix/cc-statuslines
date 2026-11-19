@@ -27,6 +27,8 @@ test('versioned entries win over family fallbacks', () => {
 
 test('cache reads use explicit rates where they deviate from 0.1x input', () => {
   const read = { cache_read_input_tokens: M };
+  expect(requestCostUsd('claude-fable-5-2', read)).toBeCloseTo(0.2);
+  expect(requestCostUsd('claude-fable-5-2', { input_tokens: M, output_tokens: M, speed: 'fast' })).toBeCloseTo(96);
   expect(requestCostUsd('claude-fable-5-1', read)).toBeCloseTo(0.25);
   expect(requestCostUsd('claude-fable-5', read)).toBeCloseTo(1);
   expect(requestCostUsd('claude-opus-5-5', read)).toBeCloseTo(0.2);

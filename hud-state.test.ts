@@ -119,14 +119,55 @@ test('an idle teammate without an agentId is matched by name, not duplicated', (
   expect(t.agents[0]!.agentId).toBe('researcher@team');
 });
 
-test('a seconds-old snapshot does not bring back an agent the transcript saw finish', () => {
+test('an agent list read before the transcript saw the agent finish does not revive it', () => {
   const t = emptyTranscript();
   t.agents.push({ id: 'tool-4', agentId: 'c1', type: 'Explore', status: 'completed', startTime: new Date(now - 60_000), endTime: new Date(now - 2_000) });
-  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now - 4_000, activeMs: 0, agents: [
+  // Written just now, but the list itself was read 4 s ago, before the end.
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, agentsAt: now - 4_000, activeMs: 0, agents: [
     { id: 'c1', type: 'Explore', description: 'Scan', status: 'running', startTime: now - 60_000, costUsd: 0.3 },
   ] }, now);
   expect(t.agents[0]).toMatchObject({ status: 'completed', costUsd: 0.3 });
   expect(t.agents[0]!.endTime?.getTime()).toBe(now - 2_000);
+});
+
+test('an agent the engine reports running after the transcript saw it finish was resumed', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 'tool-5', agentId: 'c2', type: 'Explore', status: 'completed', startTime: new Date(now - 60_000), endTime: new Date(now - 20_000) });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, agentsAt: now - 1_000, activeMs: 0, agents: [
+    { id: 'c2', type: 'Explore', description: 'Scan', status: 'running', startTime: now - 60_000 },
+  ] }, now);
+  expect(t.agents[0]!.status).toBe('running');
+  expect(t.agents[0]!.endTime).toBeUndefined();
+});
+
+test("a transcript agent of type 'unknown' is matched by description", () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 'toolu_7', type: 'unknown', description: 'Look around', status: 'running', startTime: new Date(now - 5_000) });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [
+    { id: 'd1', type: 'general-purpose', description: 'Look around', status: 'running', startTime: now - 5_000 },
+  ] }, now);
+  expect(t.agents).toHaveLength(1);
+});
+
+test('engine cost wins for agents begun after the mod loaded, else the larger figure', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 't1', agentId: 'e1', type: 'oracle', status: 'running', startTime: new Date(now - 50_000), costUsd: 4.2 });
+  t.agents.push({ id: 't2', agentId: 'e2', type: 'oracle', status: 'running', startTime: new Date(now - 5_000), costUsd: 0.9 });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, loadedAt: now - 10_000, activeMs: 0, agents: [
+    { id: 'e1', type: 'oracle', description: '', status: 'running', startTime: now - 50_000, costUsd: 0.03 }, // ledger restarted
+    { id: 'e2', type: 'oracle', description: '', status: 'running', startTime: now - 5_000, costUsd: 0.7 },
+  ] }, now);
+  expect(t.agents[0]!.costUsd).toBe(4.2);
+  expect(t.agents[1]!.costUsd).toBe(0.7);
+});
+
+test('agents added from the snapshot are placed by start time', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 't3', agentId: 'f2', type: 'Explore', status: 'completed', startTime: new Date(now - 10_000), endTime: new Date(now - 1_000) });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [
+    { id: 'f1', type: 'Explore', description: 'Old', status: 'completed', startTime: now - 1_200_000, endTime: now - 1_100_000 },
+  ] }, now);
+  expect(t.agents.map(a => a.agentId)).toEqual(['f1', 'f2']);
 });
 
 test('a teammate the transcript does not know is shown by its name', () => {

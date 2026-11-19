@@ -70,8 +70,19 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
   // returns, and a teammate only once its meta file resolves; until then match
   // by description, with the type or (for a teammate) the name agreeing.
   const unbound = transcript.agents.filter(a => !a.agentId && (a.status === 'running' || a.status === 'idle'));
+  // The transcript says 'unknown' when the Agent call named no subagent_type.
   const sameAgent = (a: AgentEntry, sa: SnapshotAgent): boolean =>
-    (a.description ?? '') === sa.description && (a.type === sa.type || (sa.name !== undefined && a.type === sa.name));
+    (a.description ?? '') === sa.description
+    && (a.type === sa.type || a.type === 'unknown' || (sa.name !== undefined && a.type === sa.name));
+  const sampledAt = snap.agentsAt ?? snap.writtenAt;
+  // The engine's per-agent ledger starts over with the process (/resume, a new
+  // process): it is whole only for agents begun after the mod loaded.
+  const engineCost = (sa: SnapshotAgent, known?: number | null): number | undefined => {
+    if (typeof sa.costUsd !== 'number') return undefined;
+    const isWhole = snap.loadedAt !== undefined && sa.startTime >= snap.loadedAt;
+    return isWhole ? sa.costUsd : Math.max(known ?? 0, sa.costUsd);
+  };
+  let added = false;
   for (const sa of snap.agents) {
     let known = byId.get(sa.id);
     if (!known) {
@@ -84,11 +95,13 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
     }
     const status = toEntryStatus(sa.status);
     if (known) {
-      // The snapshot can be seconds old: never bring back to life an agent
-      // the transcript already saw finish.
+      // An agent list read before the transcript saw the agent finish is
+      // stale; one read after it means the agent was resumed.
       const isEnded = known.status === 'completed' || known.status === 'stopped';
-      if (isEnded && status !== 'completed' && status !== 'stopped') {
-        if (typeof sa.costUsd === 'number') known.costUsd = sa.costUsd;
+      const isStale = !known.endTime || sampledAt <= known.endTime.getTime();
+      const cost = engineCost(sa, known.costUsd);
+      if (isEnded && isStale && status !== 'completed' && status !== 'stopped') {
+        if (cost !== undefined) known.costUsd = cost;
         continue;
       }
       known.status = status;
@@ -96,9 +109,10 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
       else if (!known.endTime) known.endTime = new Date(sa.endTime ?? snap.writtenAt);
       if (sa.model) known.model = sa.model;
       if (typeof sa.outputTokensPerSec === 'number') known.outputTokensPerSec = sa.outputTokensPerSec;
-      if (typeof sa.costUsd === 'number') known.costUsd = sa.costUsd;
+      if (cost !== undefined) known.costUsd = cost;
       continue;
     }
+    added = true;
     transcript.agents.push({
       id: sa.id,
       agentId: sa.id,
@@ -113,4 +127,7 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
       ...(typeof sa.costUsd === 'number' ? { costUsd: sa.costUsd } : {}),
     });
   }
+  // The agents line reads recency from array order (the transcript's start
+  // order): place the added ones by start time, not last.
+  if (added) transcript.agents.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 }
