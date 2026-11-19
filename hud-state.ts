@@ -75,11 +75,11 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
     (a.description ?? '') === sa.description
     && (a.type === sa.type || a.type === 'unknown' || (sa.name !== undefined && a.type === sa.name));
   const sampledAt = snap.agentsAt ?? snap.writtenAt;
-  // The engine's per-agent ledger starts over with the process (/resume, a new
-  // process): it is whole only for agents begun after the mod loaded.
+  // The engine's per-agent ledger starts over on /clear, /resume and a new
+  // process: it is whole only for agents begun after its last restart.
   const engineCost = (sa: SnapshotAgent, known?: number | null): number | undefined => {
     if (typeof sa.costUsd !== 'number') return undefined;
-    const isWhole = snap.loadedAt !== undefined && sa.startTime >= snap.loadedAt;
+    const isWhole = snap.ledgerAt !== undefined && sa.startTime >= snap.ledgerAt;
     return isWhole ? sa.costUsd : Math.max(known ?? 0, sa.costUsd);
   };
   let added = false;
@@ -108,10 +108,15 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
       if (status === 'running') known.endTime = undefined;
       else if (!known.endTime) known.endTime = new Date(sa.endTime ?? snap.writtenAt);
       if (sa.model) known.model = sa.model;
-      if (typeof sa.outputTokensPerSec === 'number') known.outputTokensPerSec = sa.outputTokensPerSec;
+      // The transcript's rate is over the requests themselves: the mod's
+      // coarser figure only fills in where there is none.
+      if (typeof sa.outputTokensPerSec === 'number' && typeof known.outputTokensPerSec !== 'number') known.outputTokensPerSec = sa.outputTokensPerSec;
       if (cost !== undefined) known.costUsd = cost;
       continue;
     }
+    // The agents line lists what the main loop spawned; agents spawned by
+    // agents stay in the agent panel.
+    if (sa.parentId !== undefined) continue;
     added = true;
     transcript.agents.push({
       id: sa.id,

@@ -20,6 +20,8 @@ export interface SnapshotAgent {
   name?: string;
   description: string;
   status: SnapshotAgentStatus;
+  /** The agent that spawned it; absent when the main loop did. */
+  parentId?: string;
   startTime: number;
   /** When the mod first saw it stop running (idle or finished). */
   endTime?: number;
@@ -33,9 +35,9 @@ export interface HudSnapshot {
   v: typeof SNAPSHOT_VERSION;
   sessionId: string;
   writtenAt: number;
-  /** When this mod module loaded. An agent started after it has its whole
-   * cost in the engine's ledger, which starts over with the process. */
-  loadedAt?: number;
+  /** When the engine's per-agent cost ledger last started over (the mod's
+   * load, /clear, /resume). An agent begun after it has its whole cost there. */
+  ledgerAt?: number;
   /** When `agents` was last read from the engine (it is cached between writes). */
   agentsAt?: number;
   /** The engine's own auto-compact trigger, in tokens. */

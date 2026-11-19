@@ -22,7 +22,8 @@ import {
 
 
 const LAUNCHER = 'statusline.ts'
-const RATE_WINDOW_MS = 30_000
+const RATE_WINDOW_MS = 120_000
+const SLOW_TICK_MS = 30_000
 const TICK_MS = 5_000
 
 // Module state starts over on a reload; every figure here rebuilds within a turn.
@@ -48,7 +49,10 @@ const endedAt = new Map<string, number>()
 const parentOf = new Map<string, string>()
 /** Agents this module has seen running: their stop was watched, to within a tick. */
 const seenLive = new Set<string>()
-const loadedAt = Date.now()
+/** When the engine's per-agent cost ledger last started over, as far as this
+ * module knows: its load, then each session-id change (/clear, /resume). */
+let ledgerAt = Date.now()
+let hasLauncher = false
 let agentsAt: number | undefined
 let autoCompactAt = 0
 
@@ -62,6 +66,7 @@ function resetSessionState(): void {
   reqCount = 0
   agents = []
   agentsAt = undefined
+  ledgerAt = Date.now()
   lastWritten = ''
   outputHistory.clear()
   endedAt.clear()
@@ -97,17 +102,24 @@ function outputTokens(a: { usage?: readonly { output_tokens: number }[] }): numb
   return (a.usage ?? []).reduce((n, u) => n + (u.output_tokens ?? 0), 0)
 }
 
-/** Output tokens per second over the last RATE_WINDOW_MS, from samples this module took. */
+/**
+ * An agent's output rate. The engine's output count only moves when a model
+ * request lands, so samples are kept where it changes and the rate is taken
+ * between the oldest and newest change in the window: output per second of
+ * the agent's work (tool time included), steady across long requests.
+ */
 function sampleRate(id: string, out: number, now: number, isLive: boolean): number | undefined {
   const hist = outputHistory.get(id) ?? []
   const last = hist.at(-1)
-  if (!last || last.out !== out || now - last.t >= TICK_MS) hist.push({ t: now, out })
+  if (!last || out > last.out) hist.push({ t: now, out })
+  else if (out < last.out) hist.splice(0, hist.length, { t: now, out }) // the ledger started over
   while (hist.length > 2 && now - (hist[0]?.t ?? now) > RATE_WINDOW_MS) hist.shift()
   outputHistory.set(id, hist)
   const first = hist[0]
-  if (!isLive || !first || hist.length < 2) return undefined
-  const dt = (now - first.t) / 1000
-  const d = out - first.out
+  const newest = hist.at(-1)
+  if (!isLive || !first || !newest || hist.length < 2) return undefined
+  const dt = (newest.t - first.t) / 1000
+  const d = newest.out - first.out
   return dt >= 2 && d > 0 ? d / dt : undefined
 }
 
@@ -122,6 +134,7 @@ function toSnapshotAgent(a: AgentInfo, now: number): SnapshotAgent {
     ...(a.name ? { name: a.name } : {}),
     description: a.description,
     status: a.status,
+    ...(a.parentId !== undefined ? { parentId: a.parentId } : {}),
     startTime: a.startTime,
     ...(endTime !== undefined ? { endTime } : {}),
     ...(a.model ? { model: a.model } : {}),
@@ -192,8 +205,7 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       turnStartedAt = Date.now()
-      // Not awaited: the turn should not wait on the status line.
-      void refreshAutoCompact($).then(() => write($))
+      void write($)
     }
     return next(e)
   })
@@ -224,24 +236,11 @@ export const register: Register = on => {
     return result
   })
 
-  on('session.measure', async ($, e, next) => {
-    const result = await next(e)
-    await refreshAutoCompact($)
-    void write($)
-    return result
-  })
-
   // /clear and an in-process resume go on under a new session id with no
   // session.start; the tick also notices an id change, this is just sooner.
   on('session.end', async ($, e, next) => {
     const result = await next(e)
     await followSessionId($)
-    return result
-  })
-
-  on('session.compact', async ($, e, next) => {
-    const result = await next(e)
-    await refreshAutoCompact($)
     return result
   })
 
@@ -253,7 +252,7 @@ export const register: Register = on => {
     }
     hudDir ??= await resolveHudDir($).catch(() => undefined)
     if (!hudDir) return { text: 'Could not resolve the Claude config directory.' }
-    const hasLauncher = await writeLauncher($)
+    hasLauncher = await writeLauncher($)
     const command = `${shellQuote(bunPath)} --env-file /dev/null ${shellQuote(`${hudDir}/${LAUNCHER}`)}`
     const wanted = { type: 'command', command, refreshInterval: 5 }
     const settingsPath = hudDir.replace(/\/hud$/, '/settings.json')
@@ -341,13 +340,22 @@ async function writeLauncher($: Dollar): Promise<boolean> {
 }
 
 async function init($: Dollar): Promise<void> {
-  try {
-    hudDir = await resolveHudDir($)
-    sessionId ??= await $.session.id()
-    colors = await readColorsSetting($)
-    await Promise.all([writeLauncher($), refreshAutoCompact($)])
-    await write($)
-  } catch { /* the tick retries what it needs */ }
+  // Each step on its own: one failing must not cost the others. The tick
+  // retries whichever is still missing.
+  try { hudDir = await resolveHudDir($) } catch { /* tick */ }
+  hasLauncher = await writeLauncher($)
+  try { sessionId ??= await $.session.id() } catch { /* tick */ }
+  await slowRefresh($)
+  await write($)
+}
+
+/** Settings that move without an event of their own: the row colors in the
+ * HUD config, and the auto-compact trigger (a /model or /config change).
+ * The context summary is computed locally but is not free, so: start-up,
+ * a session-id change, and every SLOW_TICK_MS. */
+async function slowRefresh($: Dollar): Promise<void> {
+  try { colors = await readColorsSetting($) } catch { /* keep */ }
+  await refreshAutoCompact($)
 }
 
 async function refreshAutoCompact($: Dollar): Promise<void> {
@@ -394,10 +402,10 @@ async function findBun($: Dollar): Promise<string> {
 }
 
 async function tick($: Dollar): Promise<void> {
+  if (!hudDir) { try { hudDir = await resolveHudDir($) } catch { /* next tick */ } }
+  if (!hasLauncher) hasLauncher = await writeLauncher($)
   await followSessionId($)
-  // A /model or /config change between turns moves the trigger with no
-  // event of its own: re-read it now and then (the summary is local).
-  if (Date.now() - autoCompactAt >= 30_000) await refreshAutoCompact($)
+  if (Date.now() - autoCompactAt >= SLOW_TICK_MS) await slowRefresh($)
   try {
     const now = Date.now()
     const listed = await $.agent.list()
@@ -426,7 +434,7 @@ async function writeNow($: Dollar): Promise<void> {
   const snapshot: Omit<HudSnapshot, 'writtenAt' | 'agentsAt'> = {
     v: SNAPSHOT_VERSION,
     sessionId,
-    loadedAt,
+    ledgerAt,
     ...(autoCompact ? { autoCompact } : {}),
     activeMs,
     ...(turnStartedAt !== undefined ? { turnStartedAt } : {}),

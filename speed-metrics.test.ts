@@ -10,6 +10,7 @@ test('versioned entries win over family fallbacks', () => {
   const io = { input_tokens: M, output_tokens: M };
   expect(requestCostUsd('claude-fable-5-2', io)).toBeCloseTo(48);
   expect(requestCostUsd('claude-fable-5-1', io)).toBeCloseTo(60);
+  expect(requestCostUsd('claude-fable-5-20260915', io)).toBeCloseTo(60); // a dated Fable 5 id is not 5.2
   expect(requestCostUsd('claude-opus-5-5', io)).toBeCloseTo(24);
   expect(requestCostUsd('claude-opus-5', io)).toBeCloseTo(30);
   expect(requestCostUsd('claude-opus-4-8', io)).toBeCloseTo(30);

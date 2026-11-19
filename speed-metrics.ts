@@ -36,8 +36,8 @@ interface ModelPrice {
 // writes derive from input: 5m = 1.25x, 1h = 2x. Sources: Claude API pricing,
 // 2026-10-16.
 const MODEL_PRICING: ModelPrice[] = [
-  { match: /(fable|mythos)-5-2/, inPerM: 8, outPerM: 40, cacheReadPerM: 0.2, fastMultiplier: 2 },
-  { match: /(fable|mythos)-5-1/, inPerM: 10, outPerM: 50, cacheReadPerM: 0.25 },
+  { match: /(fable|mythos)-5-2(?!\d)/, inPerM: 8, outPerM: 40, cacheReadPerM: 0.2, fastMultiplier: 2 },
+  { match: /(fable|mythos)-5-1(?!\d)/, inPerM: 10, outPerM: 50, cacheReadPerM: 0.25 },
   { match: /fable|mythos/, inPerM: 10, outPerM: 50 },
   { match: /opus-5-5/, inPerM: 4, outPerM: 20, cacheReadPerM: 0.2, fastMultiplier: 2 },
   { match: /opus-5|opus-4-8/, inPerM: 5, outPerM: 25, fastMultiplier: 2 },

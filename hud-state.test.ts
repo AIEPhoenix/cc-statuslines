@@ -60,7 +60,7 @@ test('engine agent status, model, rate and cost override the transcript; unknown
     ],
   }, now);
   const [a1, a2] = t.agents;
-  expect(a1).toMatchObject({ status: 'running', model: 'claude-haiku-5-5', outputTokensPerSec: 80, costUsd: 0.75 });
+  expect(a1).toMatchObject({ status: 'running', model: 'claude-haiku-5-5', outputTokensPerSec: 80 });
   expect(a1!.endTime).toBeUndefined();
   expect(a2).toMatchObject({ agentId: 'a2', type: 'oracle', description: 'Review', status: 'stopped' });
 });
@@ -153,7 +153,7 @@ test('engine cost wins for agents begun after the mod loaded, else the larger fi
   const t = emptyTranscript();
   t.agents.push({ id: 't1', agentId: 'e1', type: 'oracle', status: 'running', startTime: new Date(now - 50_000), costUsd: 4.2 });
   t.agents.push({ id: 't2', agentId: 'e2', type: 'oracle', status: 'running', startTime: new Date(now - 5_000), costUsd: 0.9 });
-  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, loadedAt: now - 10_000, activeMs: 0, agents: [
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, ledgerAt: now - 10_000, activeMs: 0, agents: [
     { id: 'e1', type: 'oracle', description: '', status: 'running', startTime: now - 50_000, costUsd: 0.03 }, // ledger restarted
     { id: 'e2', type: 'oracle', description: '', status: 'running', startTime: now - 5_000, costUsd: 0.7 },
   ] }, now);
@@ -176,4 +176,15 @@ test('a teammate the transcript does not know is shown by its name', () => {
     { id: 'writer@team', type: 'teammate', name: 'writer', description: 'Draft docs', status: 'running', startTime: now - 1_000 },
   ] }, now);
   expect(t.agents[0]!.type).toBe('writer');
+});
+
+test('the transcript rate stands; agents spawned by agents are not added', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 't9', agentId: 'g1', type: 'oracle', status: 'running', startTime: new Date(now - 9_000), outputTokensPerSec: 31 });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [
+    { id: 'g1', type: 'oracle', description: '', status: 'running', startTime: now - 9_000, outputTokensPerSec: 300 },
+    { id: 'g2', type: 'Explore', description: 'Nested', status: 'running', parentId: 'g1', startTime: now - 3_000 },
+  ] }, now);
+  expect(t.agents).toHaveLength(1);
+  expect(t.agents[0]!.outputTokensPerSec).toBe(31);
 });
