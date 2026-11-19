@@ -41,7 +41,7 @@ export interface HudSnapshot {
   /** Start of the main turn in progress, if any; add `now - turnStartedAt` to activeMs. */
   turnStartedAt?: number;
   /** Main-loop throughput over the model requests themselves. */
-  speed?: { inputTokensPerSec: number; outputTokensPerSec: number };
+  speed?: { inputTokensPerSec: number; outputTokensPerSec: number; requests: number };
   agents: SnapshotAgent[];
 }
 

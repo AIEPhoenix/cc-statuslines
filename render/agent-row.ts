@@ -38,7 +38,7 @@ export function formatAgentRow(raw: AgentRowData, now: number, colors: boolean):
     ...raw,
     agentType: cleanText(raw.agentType), type: cleanText(raw.type), name: cleanText(raw.name),
     model: cleanText(raw.model), effort: typeof raw.effort === 'number' && Number.isFinite(raw.effort) ? String(raw.effort) : cleanText(raw.effort),
-    label: cleanText(raw.label), description: cleanText(raw.description),
+    label: cleanText(oneLine(raw.label)), description: cleanText(oneLine(raw.description)),
   };
   const type = t.agentType || t.type || 'agent';
   const name = t.name && t.name !== type ? `${type} ${c.dim(`(${t.name})`)}` : type;
@@ -71,6 +71,12 @@ export function formatAgentRow(raw: AgentRowData, now: number, colors: boolean):
 }
 
 function id(s: string): string { return s; }
+
+/** A progress summary may span lines: join them with spaces before control
+ * characters are stripped, so words on either side stay apart. */
+function oneLine(v: string | undefined): string | undefined {
+  return typeof v === 'string' ? v.replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ').trim() : v;
+}
 
 /** Trim to the row's usable width in terminal cells (ANSI is zero-width,
  * CJK is double-width), keeping color sequences intact and closing them. */

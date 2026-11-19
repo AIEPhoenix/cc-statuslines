@@ -7,13 +7,17 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getHudDir } from './config.ts';
+import { pruneCacheDir } from './transcript.ts';
 import { isHudSnapshot, snapshotFileName, SNAPSHOT_MAX_AGE_MS, type HudSnapshot, type SnapshotAgent } from './mod/snapshot.ts';
 import type { AgentEntry, TranscriptData } from './types.ts';
 
 export function readSnapshot(sessionId: string | undefined, now = Date.now()): HudSnapshot | null {
   if (!sessionId) return null;
   try {
-    const file = path.join(getHudDir(), 'state', snapshotFileName(sessionId));
+    const dir = path.join(getHudDir(), 'state');
+    // The mod cannot delete files: old sessions' snapshots are swept here, daily.
+    pruneCacheDir(dir);
+    const file = path.join(dir, snapshotFileName(sessionId));
     const parsed = parseSnapshotFile(file);
     if (!isHudSnapshot(parsed) || parsed.sessionId !== sessionId) return null;
     if (now - parsed.writtenAt > SNAPSHOT_MAX_AGE_MS) return null;
@@ -34,6 +38,8 @@ function parseSnapshotFile(file: string): unknown {
   }
 }
 
+const MIN_SPEED_REQUESTS = 10;
+
 function toEntryStatus(s: SnapshotAgent['status']): AgentEntry['status'] {
   switch (s) {
     case 'idle': return 'idle';
@@ -51,19 +57,25 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
   // the transcript from the session's start: keep the larger.
   const modActive = snap.activeMs + (snap.turnStartedAt !== undefined ? Math.max(0, now - snap.turnStartedAt) : 0);
   transcript.activeDurationMs = Math.max(transcript.activeDurationMs ?? 0, modActive);
-  if (snap.speed) {
+  // The mod's throughput covers only the requests since it loaded: use it once
+  // it has a fair sample, or when the transcript has none.
+  const hasTranscriptSpeed = typeof transcript.outputTokensPerSec === 'number';
+  if (snap.speed && (snap.speed.requests >= MIN_SPEED_REQUESTS || !hasTranscriptSpeed)) {
     transcript.inputTokensPerSec = snap.speed.inputTokensPerSec;
     transcript.outputTokensPerSec = snap.speed.outputTokensPerSec;
   }
 
   const byId = new Map(transcript.agents.filter(a => a.agentId).map(a => [a.agentId!, a]));
   // A foreground agent gets its agentId in the transcript only when it
-  // returns; until then match it by type and description.
-  const unbound = transcript.agents.filter(a => !a.agentId && a.status === 'running');
+  // returns, and a teammate only once its meta file resolves; until then match
+  // by description, with the type or (for a teammate) the name agreeing.
+  const unbound = transcript.agents.filter(a => !a.agentId && (a.status === 'running' || a.status === 'idle'));
+  const sameAgent = (a: AgentEntry, sa: SnapshotAgent): boolean =>
+    (a.description ?? '') === sa.description && (a.type === sa.type || (sa.name !== undefined && a.type === sa.name));
   for (const sa of snap.agents) {
     let known = byId.get(sa.id);
     if (!known) {
-      const i = unbound.findIndex(a => a.type === sa.type && (a.description ?? '') === sa.description);
+      const i = unbound.findIndex(a => sameAgent(a, sa));
       if (i >= 0) {
         known = unbound[i]!;
         unbound.splice(i, 1);

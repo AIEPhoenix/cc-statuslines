@@ -46,3 +46,9 @@ test('the mod adds measured speed and the engine cost to a row', async () => {
   const row = formatAgentRow({ id: 'a8', agentType: 'Explore', description: 'Scan', startTime: now - 10_000, outputTokensPerSec: 48.2, costUsd: 0.123 }, now, false);
   expect(row).toBe('Explore: Scan (10s | 48 tok/s) $0.12');
 });
+
+test('a multi-line progress summary is joined with spaces', async () => {
+  const { formatAgentRow } = await import('./render/agent-row.ts');
+  const row = formatAgentRow({ id: 'a9', agentType: 'Explore', label: 'Reading config files\nFound 3 matches' }, now, false);
+  expect(row).toBe('Explore: Reading config files Found 3 matches');
+});

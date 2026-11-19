@@ -139,3 +139,8 @@ test('auto-compact turned off in the engine draws no line', () => {
   const ctx = { ...ctxWith({ size: 1_000_000, configured: 500_000 }), engineAutoCompact: { threshold: 0, enabled: false } } as RenderContext;
   expect(resolveCompactLine(ctx)).toBeNull();
 });
+
+test('a stale engine threshold outside the window falls back to the estimate', () => {
+  const ctx = { ...ctxWith({ size: 200_000, configured: 160_000 }), engineAutoCompact: { threshold: 967_000, enabled: true } } as RenderContext;
+  expect(resolveCompactLine(ctx)).toEqual({ tokens: 160_000, source: 'configured' });
+});

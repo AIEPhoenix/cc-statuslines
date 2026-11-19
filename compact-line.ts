@@ -112,8 +112,11 @@ export function resolveCompactLine(ctx: RenderContext): CompactLine | null {
 
   // The mod reports the engine's own trigger: exact, so it beats every estimate.
   // Auto-compact turned off means there is no line to draw.
+  // A threshold outside the window is stale (a model switch before the next
+  // measure): fall through to the estimates until it is refreshed.
   const engine = ctx.engineAutoCompact;
-  if (engine) return engine.enabled && inWindow(engine.threshold) ? { tokens: engine.threshold, source: 'engine' } : null;
+  if (engine && !engine.enabled) return null;
+  if (engine && inWindow(engine.threshold)) return { tokens: engine.threshold, source: 'engine' };
 
   // A mid-session model switch can shrink the window below a previously
   // observed line; such stale observations are dropped rather than clamped.

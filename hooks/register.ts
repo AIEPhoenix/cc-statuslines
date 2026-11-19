@@ -47,6 +47,7 @@ let turnStartedAt: number | undefined
 let reqMs = 0
 let reqIn = 0
 let reqOut = 0
+let reqCount = 0
 let agents: SnapshotAgent[] = []
 let lastWritten = ''
 let lastWriteAt = 0
@@ -64,6 +65,7 @@ function resetSessionState(): void {
   reqMs = 0
   reqIn = 0
   reqOut = 0
+  reqCount = 0
   agents = []
   lastWritten = ''
   outputHistory.clear()
@@ -149,6 +151,10 @@ export const register: Register = on => {
     const now = Date.now()
     const out = outputTokens(p)
     const live = LIVE.has(p.status)
+    if (live) endedAt.delete(p.id)
+    else if (!endedAt.has(p.id)) endedAt.set(p.id, now)
+    // A stopped agent's elapsed time ends where it stopped.
+    const shownAt = live ? now : endedAt.get(p.id) ?? now
     const row = formatAgentRow({
       id: p.id,
       name: p.name,
@@ -162,7 +168,7 @@ export const register: Register = on => {
       tokenCount: p.tokenCount,
       outputTokensPerSec: sampleRate(p.id, out, now, live),
       costUsd: p.cost?.usd,
-    }, now, colors)
+    }, shownAt, colors)
     return next({ ...e, props: { ...e.props, body: fitRow(row, p.columns ?? 0) } })
   })
 
@@ -196,6 +202,7 @@ export const register: Register = on => {
       reqMs += Date.now() - t0
       reqIn += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)
       reqOut += u.output_tokens ?? 0
+      reqCount += 1
     }
     return result
   })
@@ -228,7 +235,7 @@ export const register: Register = on => {
       return { text: 'Bun was not found on PATH. Install it (https://bun.sh), then run /hud-setup again.' }
     }
     if (!hudDir) return { text: 'Could not resolve the Claude config directory; nothing written.' }
-    const command = `${bunPath} --env-file /dev/null ${hudDir}/${LAUNCHER}`
+    const command = `${shellQuote(bunPath)} --env-file /dev/null ${shellQuote(`${hudDir}/${LAUNCHER}`)}`
     const wanted = { type: 'command', command, refreshInterval: 5 }
     const settingsPath = hudDir ? hudDir.replace(/\/hud$/, '/settings.json') : undefined
     const user = await $.settings.read({ source: 'user' }) as Record<string, unknown>
@@ -241,7 +248,8 @@ export const register: Register = on => {
       `new statusLine:     ${JSON.stringify(wanted)}`,
     ]
     if (hasLegacySubagentLine) lines.push('subagentStatusLine: will be removed (this plugin draws the agent rows now)')
-    const isCurrent = JSON.stringify(current) === JSON.stringify(wanted)
+    const cur = (current ?? {}) as Record<string, unknown>
+    const isCurrent = cur.type === wanted.type && cur.command === wanted.command && cur.refreshInterval === wanted.refreshInterval
     if (isCurrent && !hasLegacySubagentLine) {
       lines.push('', 'Already set up; nothing to change.')
       return { text: lines.join('\n') }
@@ -261,6 +269,11 @@ export const register: Register = on => {
 }
 
 type Dollar = Parameters<Hook<'session.start'>>[0]
+
+/** POSIX single-quoting for a path pasted into a shell command, only when needed. */
+function shellQuote(s: string): string {
+  return /^[A-Za-z0-9_@%+=:,./~-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`
+}
 
 async function readColorsSetting($: Dollar): Promise<boolean> {
   if (!hudDir) return false
@@ -346,7 +359,12 @@ async function tick($: Dollar): Promise<void> {
   await followSessionId($)
   try {
     const now = Date.now()
-    agents = (await $.agent.list()).map(a => toSnapshotAgent(a as AgentLike, now))
+    const listed = await $.agent.list()
+    agents = listed.map(a => toSnapshotAgent(a as AgentLike, now))
+    // Forget agents the engine no longer lists, so long sessions stay small.
+    const ids = new Set(listed.map(a => a.id))
+    for (const id of outputHistory.keys()) if (!ids.has(id)) outputHistory.delete(id)
+    for (const id of endedAt.keys()) if (!ids.has(id)) endedAt.delete(id)
   } catch { /* keep the last list */ }
   await write($)
 }
@@ -365,7 +383,7 @@ async function writeNow($: Dollar): Promise<void> {
     ...(autoCompact ? { autoCompact } : {}),
     activeMs,
     ...(turnStartedAt !== undefined ? { turnStartedAt } : {}),
-    ...(reqMs > 0 ? { speed: { inputTokensPerSec: reqIn / (reqMs / 1000), outputTokensPerSec: reqOut / (reqMs / 1000) } } : {}),
+    ...(reqMs > 0 ? { speed: { inputTokensPerSec: reqIn / (reqMs / 1000), outputTokensPerSec: reqOut / (reqMs / 1000), requests: reqCount } } : {}),
     agents,
   }
   const body = JSON.stringify(snapshot)

@@ -43,7 +43,7 @@ test('ignores a snapshot of another version', () => {
 
 test('active time adds the turn in progress; speed comes from the engine', () => {
   const t = emptyTranscript();
-  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 60_000, turnStartedAt: now - 5_000, speed: { inputTokensPerSec: 900, outputTokensPerSec: 42 }, agents: [] }, now);
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 60_000, turnStartedAt: now - 5_000, speed: { inputTokensPerSec: 900, outputTokensPerSec: 42, requests: 12 }, agents: [] }, now);
   expect(t.activeDurationMs).toBe(65_000);
   expect(t.outputTokensPerSec).toBe(42);
   expect(t.inputTokensPerSec).toBe(900);
@@ -100,4 +100,21 @@ test('a half-written snapshot reads as none, not an error', () => {
   const dir = path.join(CFG, 'hud', 'state');
   fs.writeFileSync(path.join(dir, `${SID}.json`), '{"v":1,"sessionId":');
   expect(readSnapshot(SID, now)).toBeNull();
+});
+
+test('a small mod sample does not replace the session-wide transcript speed', () => {
+  const t = emptyTranscript();
+  t.outputTokensPerSec = 60;
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, speed: { inputTokensPerSec: 90_000, outputTokensPerSec: 400, requests: 1 }, agents: [] }, now);
+  expect(t.outputTokensPerSec).toBe(60);
+});
+
+test('an idle teammate without an agentId is matched by name, not duplicated', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 'tool-3', type: 'researcher', description: 'Dig into logs', status: 'idle', startTime: new Date(now - 600_000), endTime: new Date(now - 300_000) });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [
+    { id: 'researcher@team', type: 'teammate', name: 'researcher', description: 'Dig into logs', status: 'idle', startTime: now - 600_000 },
+  ] }, now);
+  expect(t.agents).toHaveLength(1);
+  expect(t.agents[0]!.agentId).toBe('researcher@team');
 });
