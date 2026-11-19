@@ -4,12 +4,10 @@
  *
  * `explore [haiku 4.5 | high]: Researching docs (1m 02s | 12k 6% | 48 tok/s) $0.12`
  */
-import { fmtModel, fmtElapsedMs, fmtAgentTokens } from './agents.ts';
+import { fmtModel, fmtElapsedMs, fmtAgentTokens, fmtCost, COST_COLOR } from './agents.ts';
 import { magenta, white, label, dim, RESET } from './colors.ts';
 import { visualLength, sliceVisible } from '../utils/width.ts';
 import { cleanText } from '../utils/text.ts';
-
-const COST_COLOR = '\x1b[38;5;178m'; // muted gold, as on the agents line
 
 export interface AgentRowData {
   id: string;
@@ -70,10 +68,6 @@ export function formatAgentRow(raw: AgentRowData, now: number, colors: boolean):
     ? ` ${colors ? `${COST_COLOR}${fmtCost(t.costUsd)}${RESET}` : fmtCost(t.costUsd)}`
     : '';
   return `${c.magenta(name)}${m}${descPart}${statsPart}${cost}${colors ? RESET : ''}`;
-}
-
-function fmtCost(usd: number): string {
-  return usd < 0.01 ? '<$0.01' : `$${usd.toFixed(2)}`;
 }
 
 function id(s: string): string { return s; }

@@ -2,7 +2,7 @@ import type { RenderContext, AgentEntry, WorkflowEntry } from '../types.ts';
 import { yellow, green, red, magenta, white, label, dim, brightBlue, RESET } from './colors.ts';
 import { stripControl } from '../utils/text.ts';
 
-const COST_COLOR = '\x1b[38;5;178m'; // muted gold, matches the project line cost
+export const COST_COLOR = '\x1b[38;5;178m'; // muted gold, matches the project line cost
 
 // An idle teammate resting longer than this during a live session is treated as
 // likely-abandoned (e.g. orphaned by a context compaction) and shown dimmed.
@@ -82,7 +82,7 @@ export function fmtElapsedMs(ms: number): string {
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
-function fmtCost(usd: number): string {
+export function fmtCost(usd: number): string {
   if (usd < 0.01) return '<$0.01';
   return `$${usd.toFixed(2)}`;
 }

@@ -50,7 +50,27 @@ let reqOut = 0
 let agents: SnapshotAgent[] = []
 let lastWritten = ''
 let lastWriteAt = 0
+let ticker: { cancel: () => void } | undefined
+let writeChain: Promise<void> = Promise.resolve()
 const outputHistory = new Map<string, Array<{ t: number; out: number }>>()
+/** When this module first saw each agent stop running; the engine gives no end time. */
+const endedAt = new Map<string, number>()
+
+/** A new conversation in the same process (/clear, an in-process resume): start over. */
+function resetSessionState(): void {
+  autoCompact = undefined
+  activeMs = 0
+  turnStartedAt = undefined
+  reqMs = 0
+  reqIn = 0
+  reqOut = 0
+  agents = []
+  lastWritten = ''
+  outputHistory.clear()
+  endedAt.clear()
+}
+
+const LIVE = new Set(['running', 'pending', 'waiting'])
 
 function outputTokens(a: { usage?: readonly Usage[] }): number {
   return (a.usage ?? []).reduce((n, u) => n + (u.output_tokens ?? 0), 0)
@@ -72,8 +92,11 @@ function sampleRate(id: string, out: number, now: number, isLive: boolean): numb
 
 function toSnapshotAgent(a: AgentLike, now: number): SnapshotAgent {
   const out = outputTokens(a)
-  const live = a.status === 'running' || a.status === 'pending' || a.status === 'waiting'
+  const live = LIVE.has(a.status)
   const rate = sampleRate(a.id, out, now, live)
+  if (live) endedAt.delete(a.id)
+  else if (!endedAt.has(a.id)) endedAt.set(a.id, now)
+  const endTime = endedAt.get(a.id)
   return {
     id: a.id,
     type: a.type,
@@ -81,6 +104,7 @@ function toSnapshotAgent(a: AgentLike, now: number): SnapshotAgent {
     description: a.description,
     status: a.status,
     startTime: a.startTime,
+    ...(endTime !== undefined ? { endTime } : {}),
     ...(a.model ? { model: a.model } : {}),
     ...(out > 0 ? { outputTokens: out } : {}),
     ...(rate !== undefined ? { outputTokensPerSec: rate } : {}),
@@ -107,11 +131,15 @@ export const register: Register = on => {
     colors = await readColorsSetting($)
     await writeLauncher($)
     await refreshAutoCompact($)
-    await $.command.register({
-      name: 'hud-setup',
-      description: 'Show the statusLine setting that runs this HUD plugin',
-    })
-    $.clock.every(TICK_MS, () => { void tick($) })
+    // session.start runs again on a re-enable or respawn: keep one ticker.
+    ticker?.cancel()
+    ticker = $.clock.every(TICK_MS, () => { void tick($) })
+    try {
+      await $.command.register({
+        name: 'hud-setup',
+        description: 'Show the statusLine setting that runs this HUD plugin',
+      })
+    } catch { /* already registered by an earlier run */ }
     return result
   })
 
@@ -120,7 +148,7 @@ export const register: Register = on => {
     const p = e.props
     const now = Date.now()
     const out = outputTokens(p)
-    const live = p.status === 'running' || p.status === 'pending' || p.status === 'waiting'
+    const live = LIVE.has(p.status)
     const row = formatAgentRow({
       id: p.id,
       name: p.name,
@@ -148,13 +176,15 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    const result = await next(e)
-    if (e.agentId === undefined) {
-      if (turnStartedAt !== undefined) activeMs += Date.now() - turnStartedAt
-      turnStartedAt = undefined
-      void write($)
+    try {
+      return await next(e)
+    } finally {
+      if (e.agentId === undefined) {
+        if (turnStartedAt !== undefined) activeMs += Date.now() - turnStartedAt
+        turnStartedAt = undefined
+        void write($)
+      }
     }
-    return result
   })
 
   // One model request: its wall time and tokens, main loop only.
@@ -177,6 +207,14 @@ export const register: Register = on => {
     return result
   })
 
+  // /clear and an in-process resume go on under a new session id with no
+  // session.start; the tick also notices an id change, this is just sooner.
+  on('session.end', async ($, e, next) => {
+    const result = await next(e)
+    await followSessionId($)
+    return result
+  })
+
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
     await refreshAutoCompact($)
@@ -185,8 +223,7 @@ export const register: Register = on => {
 
   // ── 3. /hud-setup ───────────────────────────────────────────────────────
   on('command.run', { command: 'hud-setup' }, async $ => {
-    const bun = (await $.process.run(['/bin/sh', '-lc', 'command -v bun'], { timeoutMs: 5_000 }).catch(() => null))
-    const bunPath = bun && bun.exitCode === 0 ? bun.stdout.trim() : ''
+    const bunPath = await findBun($)
     if (!bunPath) {
       return { text: 'Bun was not found on PATH. Install it (https://bun.sh), then run /hud-setup again.' }
     }
@@ -267,13 +304,46 @@ async function refreshAutoCompact($: Dollar): Promise<void> {
   try {
     const usage = await $.session.usage({ breakdown: 'summary' })
     const b = usage.context.breakdown
-    autoCompact = b && typeof b.autoCompactThreshold === 'number' && b.autoCompactThreshold > 0
-      ? { threshold: b.autoCompactThreshold, enabled: b.isAutoCompactEnabled }
-      : undefined
+    if (!b) return
+    // Off, the engine gives no threshold: report that, so the status line
+    // draws no line rather than falling back to an estimate.
+    if (!b.isAutoCompactEnabled) autoCompact = { threshold: 0, enabled: false }
+    else if (typeof b.autoCompactThreshold === 'number' && b.autoCompactThreshold > 0) {
+      autoCompact = { threshold: b.autoCompactThreshold, enabled: true }
+    }
   } catch { /* keep the last value */ }
 }
 
+async function followSessionId($: Dollar): Promise<void> {
+  try {
+    const id = await $.session.id()
+    if (id === sessionId) return
+    sessionId = id
+    resetSessionState()
+    await refreshAutoCompact($)
+  } catch { /* keep the current id */ }
+}
+
+/** Bun's absolute path: the person's login shell first (bun's installer
+ * edits the shell rc file), then the usual install locations. */
+async function findBun($: Dollar): Promise<string> {
+  const home = (await $.env.get('HOME'))?.trim() ?? ''
+  const shell = (await $.env.get('SHELL'))?.trim() || '/bin/sh'
+  try {
+    const run = await $.process.run([shell, '-ilc', 'command -v bun'], { timeoutMs: 5_000 })
+    // rc files may print; take the last line that is a path.
+    const found = run.stdout.split('\n').map(l => l.trim()).filter(l => l.startsWith('/')).at(-1)
+    if (run.exitCode === 0 && found) return found
+  } catch { /* try the fixed locations */ }
+  const homeDirs = home ? [`${home}/.bun/bin/bun`, `${home}/.local/share/mise/shims/bun`] : []
+  for (const p of [...homeDirs, '/opt/homebrew/bin/bun', '/usr/local/bin/bun']) {
+    try { if (await $.fs.exists(p)) return p } catch { /* next */ }
+  }
+  return ''
+}
+
 async function tick($: Dollar): Promise<void> {
+  await followSessionId($)
   try {
     const now = Date.now()
     agents = (await $.agent.list()).map(a => toSnapshotAgent(a as AgentLike, now))
@@ -281,7 +351,13 @@ async function tick($: Dollar): Promise<void> {
   await write($)
 }
 
-async function write($: Dollar): Promise<void> {
+/** Writes run one at a time, in call order, so an older body never lands last. */
+function write($: Dollar): Promise<void> {
+  writeChain = writeChain.then(() => writeNow($), () => writeNow($))
+  return writeChain
+}
+
+async function writeNow($: Dollar): Promise<void> {
   if (!hudDir || !sessionId) return
   const snapshot: Omit<HudSnapshot, 'writtenAt'> = {
     v: SNAPSHOT_VERSION,

@@ -21,6 +21,8 @@ export interface SnapshotAgent {
   description: string;
   status: SnapshotAgentStatus;
   startTime: number;
+  /** When the mod first saw it stop running (idle or finished). */
+  endTime?: number;
   model?: string;
   outputTokens?: number;
   /** Rolling output rate over the last ~30 s; absent when not measurable. */

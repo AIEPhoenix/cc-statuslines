@@ -64,3 +64,40 @@ test('engine agent status, model, rate and cost override the transcript; unknown
   expect(a1!.endTime).toBeUndefined();
   expect(a2).toMatchObject({ agentId: 'a2', type: 'oracle', description: 'Review', status: 'stopped' });
 });
+
+test('active time keeps the transcript figure when the mod started later', () => {
+  const t = emptyTranscript();
+  t.activeDurationMs = 2 * 3600_000;
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [] }, now);
+  expect(t.activeDurationMs).toBe(2 * 3600_000);
+});
+
+test('a running foreground agent without an agentId is matched, not duplicated', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 'toolu_1', type: 'Explore', description: 'Scan repo', status: 'running', startTime: new Date(now - 5_000) });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [
+    { id: 'a9', type: 'Explore', description: 'Scan repo', status: 'running', startTime: now - 5_000, costUsd: 0.2 },
+  ] }, now);
+  expect(t.agents).toHaveLength(1);
+  expect(t.agents[0]).toMatchObject({ id: 'toolu_1', agentId: 'a9', costUsd: 0.2 });
+});
+
+test('finished agents get an end time so their elapsed time stops', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 'tool-2', agentId: 'b1', type: 'oracle', status: 'idle', startTime: new Date(now - 3600_000), endTime: new Date(now - 1800_000) });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [
+    { id: 'b1', type: 'oracle', description: 'Review', status: 'idle', startTime: now - 3600_000, endTime: now - 60_000 },
+    { id: 'b2', type: 'Explore', description: 'Done', status: 'completed', startTime: now - 120_000, endTime: now - 30_000 },
+    { id: 'b3', type: 'Explore', description: 'Old mod', status: 'completed', startTime: now - 120_000 },
+  ] }, now);
+  const [b1, b2, b3] = t.agents;
+  expect(b1!.endTime?.getTime()).toBe(now - 1800_000); // the transcript's own end time stands
+  expect(b2!.endTime?.getTime()).toBe(now - 30_000);
+  expect(b3!.endTime?.getTime()).toBe(now); // no endTime: falls back to the snapshot's write time
+});
+
+test('a half-written snapshot reads as none, not an error', () => {
+  const dir = path.join(CFG, 'hud', 'state');
+  fs.writeFileSync(path.join(dir, `${SID}.json`), '{"v":1,"sessionId":');
+  expect(readSnapshot(SID, now)).toBeNull();
+});

@@ -136,6 +136,6 @@ test('the engine trigger from the mod beats observed and configured lines', () =
 });
 
 test('auto-compact turned off in the engine draws no line', () => {
-  const ctx = { ...ctxWith({ size: 1_000_000, configured: 500_000 }), engineAutoCompact: { threshold: 967_000, enabled: false } } as RenderContext;
+  const ctx = { ...ctxWith({ size: 1_000_000, configured: 500_000 }), engineAutoCompact: { threshold: 0, enabled: false } } as RenderContext;
   expect(resolveCompactLine(ctx)).toBeNull();
 });
