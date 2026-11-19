@@ -118,3 +118,21 @@ test('an idle teammate without an agentId is matched by name, not duplicated', (
   expect(t.agents).toHaveLength(1);
   expect(t.agents[0]!.agentId).toBe('researcher@team');
 });
+
+test('a seconds-old snapshot does not bring back an agent the transcript saw finish', () => {
+  const t = emptyTranscript();
+  t.agents.push({ id: 'tool-4', agentId: 'c1', type: 'Explore', status: 'completed', startTime: new Date(now - 60_000), endTime: new Date(now - 2_000) });
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now - 4_000, activeMs: 0, agents: [
+    { id: 'c1', type: 'Explore', description: 'Scan', status: 'running', startTime: now - 60_000, costUsd: 0.3 },
+  ] }, now);
+  expect(t.agents[0]).toMatchObject({ status: 'completed', costUsd: 0.3 });
+  expect(t.agents[0]!.endTime?.getTime()).toBe(now - 2_000);
+});
+
+test('a teammate the transcript does not know is shown by its name', () => {
+  const t = emptyTranscript();
+  applySnapshot(t, { v: SNAPSHOT_VERSION, sessionId: SID, writtenAt: now, activeMs: 0, agents: [
+    { id: 'writer@team', type: 'teammate', name: 'writer', description: 'Draft docs', status: 'running', startTime: now - 1_000 },
+  ] }, now);
+  expect(t.agents[0]!.type).toBe('writer');
+});

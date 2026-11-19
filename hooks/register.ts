@@ -31,6 +31,8 @@ type AgentLike = {
   model?: string
   usage?: readonly Usage[]
   cost?: { usd: number }
+  parentId?: string
+  lastRequest?: { at: number }
 }
 
 const LAUNCHER = 'statusline.ts'
@@ -56,12 +58,14 @@ let writeChain: Promise<void> = Promise.resolve()
 const outputHistory = new Map<string, Array<{ t: number; out: number }>>()
 /** When this module first saw each agent stop running; the engine gives no end time. */
 const endedAt = new Map<string, number>()
+/** Each listed agent's parent, for a nested row's depth. */
+const parentOf = new Map<string, string>()
+let autoCompactAt = 0
 
 /** A new conversation in the same process (/clear, an in-process resume): start over. */
 function resetSessionState(): void {
   autoCompact = undefined
   activeMs = 0
-  turnStartedAt = undefined
   reqMs = 0
   reqIn = 0
   reqOut = 0
@@ -70,6 +74,28 @@ function resetSessionState(): void {
   lastWritten = ''
   outputHistory.clear()
   endedAt.clear()
+  parentOf.clear()
+}
+
+/**
+ * Notes whether an agent runs and returns when it stopped. The engine gives
+ * no end time: the first time this module sees it stopped, its last model
+ * request is the closest stand-in (right after a reload, or for an agent
+ * first seen finished, "now" would inflate its duration).
+ */
+function noteStatus(id: string, live: boolean, now: number, lastRequestAt?: number): number | undefined {
+  if (live) {
+    endedAt.delete(id)
+    return undefined
+  }
+  if (!endedAt.has(id)) endedAt.set(id, lastRequestAt ?? now)
+  return endedAt.get(id)
+}
+
+function depthOf(id: string): number {
+  let depth = 0
+  for (let p = parentOf.get(id); p !== undefined && depth < 10; p = parentOf.get(p)) depth++
+  return depth
 }
 
 const LIVE = new Set(['running', 'pending', 'waiting'])
@@ -96,9 +122,7 @@ function toSnapshotAgent(a: AgentLike, now: number): SnapshotAgent {
   const out = outputTokens(a)
   const live = LIVE.has(a.status)
   const rate = sampleRate(a.id, out, now, live)
-  if (live) endedAt.delete(a.id)
-  else if (!endedAt.has(a.id)) endedAt.set(a.id, now)
-  const endTime = endedAt.get(a.id)
+  const endTime = noteStatus(a.id, live, now, a.lastRequest?.at)
   return {
     id: a.id,
     type: a.type,
@@ -108,7 +132,6 @@ function toSnapshotAgent(a: AgentLike, now: number): SnapshotAgent {
     startTime: a.startTime,
     ...(endTime !== undefined ? { endTime } : {}),
     ...(a.model ? { model: a.model } : {}),
-    ...(out > 0 ? { outputTokens: out } : {}),
     ...(rate !== undefined ? { outputTokensPerSec: rate } : {}),
     ...(a.cost && a.cost.usd > 0 ? { costUsd: a.cost.usd } : {}),
   }
@@ -151,10 +174,8 @@ export const register: Register = on => {
     const now = Date.now()
     const out = outputTokens(p)
     const live = LIVE.has(p.status)
-    if (live) endedAt.delete(p.id)
-    else if (!endedAt.has(p.id)) endedAt.set(p.id, now)
     // A stopped agent's elapsed time ends where it stopped.
-    const shownAt = live ? now : endedAt.get(p.id) ?? now
+    const shownAt = noteStatus(p.id, live, now, p.lastRequest?.at) ?? now
     const row = formatAgentRow({
       id: p.id,
       name: p.name,
@@ -169,14 +190,18 @@ export const register: Register = on => {
       outputTokensPerSec: sampleRate(p.id, out, now, live),
       costUsd: p.cost?.usd,
     }, shownAt, colors)
-    return next({ ...e, props: { ...e.props, body: fitRow(row, p.columns ?? 0) } })
+    // `columns` is a top-level row's width; a nested row's connector takes two a level.
+    if (p.parentId !== undefined) parentOf.set(p.id, p.parentId)
+    const width = p.columns ? Math.max(1, p.columns - 2 * depthOf(p.id)) : 0
+    return next({ ...e, props: { ...e.props, body: fitRow(row, width) } })
   })
 
   // ── 2. Snapshot inputs ──────────────────────────────────────────────────
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       turnStartedAt = Date.now()
-      void write($)
+      // Not awaited: the turn should not wait on the status line.
+      void refreshAutoCompact($).then(() => write($))
     }
     return next(e)
   })
@@ -315,6 +340,7 @@ async function writeLauncher($: Dollar): Promise<void> {
 
 async function refreshAutoCompact($: Dollar): Promise<void> {
   try {
+    autoCompactAt = Date.now()
     const usage = await $.session.usage({ breakdown: 'summary' })
     const b = usage.context.breakdown
     if (!b) return
@@ -357,14 +383,19 @@ async function findBun($: Dollar): Promise<string> {
 
 async function tick($: Dollar): Promise<void> {
   await followSessionId($)
+  // A /model or /config change between turns moves the trigger with no
+  // event of its own: re-read it now and then (the summary is local).
+  if (Date.now() - autoCompactAt >= 30_000) await refreshAutoCompact($)
   try {
     const now = Date.now()
     const listed = await $.agent.list()
+    for (const a of listed) if (a.parentId !== undefined) parentOf.set(a.id, a.parentId)
     agents = listed.map(a => toSnapshotAgent(a as AgentLike, now))
     // Forget agents the engine no longer lists, so long sessions stay small.
     const ids = new Set(listed.map(a => a.id))
     for (const id of outputHistory.keys()) if (!ids.has(id)) outputHistory.delete(id)
     for (const id of endedAt.keys()) if (!ids.has(id)) endedAt.delete(id)
+    for (const id of parentOf.keys()) if (!ids.has(id)) parentOf.delete(id)
   } catch { /* keep the last list */ }
   await write($)
 }
@@ -390,9 +421,10 @@ async function writeNow($: Dollar): Promise<void> {
   const now = Date.now()
   // Unchanged content is still rewritten every 30 s so the reader sees it is fresh.
   if (body === lastWritten && now - lastWriteAt < 30_000) return
-  lastWritten = body
-  lastWriteAt = now
   try {
     await $.fs.write(`${hudDir}/state/${snapshotFileName(sessionId)}`, JSON.stringify({ ...snapshot, writtenAt: now }) + '\n')
+    // Marked only once written, so a failed write is retried on the next tick.
+    lastWritten = body
+    lastWriteAt = now
   } catch { /* the status line falls back to the transcript */ }
 }

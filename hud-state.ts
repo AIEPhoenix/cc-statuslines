@@ -84,6 +84,13 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
     }
     const status = toEntryStatus(sa.status);
     if (known) {
+      // The snapshot can be seconds old: never bring back to life an agent
+      // the transcript already saw finish.
+      const isEnded = known.status === 'completed' || known.status === 'stopped';
+      if (isEnded && status !== 'completed' && status !== 'stopped') {
+        if (typeof sa.costUsd === 'number') known.costUsd = sa.costUsd;
+        continue;
+      }
       known.status = status;
       if (status === 'running') known.endTime = undefined;
       else if (!known.endTime) known.endTime = new Date(sa.endTime ?? snap.writtenAt);
@@ -95,7 +102,8 @@ export function applySnapshot(transcript: TranscriptData, snap: HudSnapshot, now
     transcript.agents.push({
       id: sa.id,
       agentId: sa.id,
-      type: sa.type,
+      // A teammate's engine type is just "teammate": its name tells them apart.
+      type: sa.type === 'teammate' && sa.name ? sa.name : sa.type,
       ...(sa.model ? { model: sa.model } : {}),
       ...(sa.description ? { description: sa.description } : {}),
       status,
