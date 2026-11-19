@@ -1,4 +1,8 @@
 /**
+ * Deprecated by Claude Code (2.1.32x) in favor of mods: the HUD plugin's
+ * `AgentRow` hook (hooks/register.ts) draws these rows now. Kept for setups
+ * that run the status line without the plugin.
+ *
  * Entry point for Claude Code's `subagentStatusLine` setting (CC ≥2.1.205;
  * `agentType` ≥2.1.293): one row per running subagent in the agent panel.
  *
@@ -17,10 +21,7 @@
  */
 import { loadConfig } from './config.ts';
 import { readStdin } from './stdin.ts';
-import { fmtModel, fmtElapsedMs, fmtAgentTokens } from './render/agents.ts';
-import { magenta, white, label, dim, RESET } from './render/colors.ts';
-import { visualLength, sliceVisible } from './render/index.ts';
-import { cleanText } from './utils/text.ts';
+import { formatAgentRow, fitRow, type AgentRowData } from './render/agent-row.ts';
 
 interface SubagentTask {
   id: string;
@@ -58,61 +59,16 @@ async function main(): Promise<void> {
     const now = Date.now();
     rows = tasks
       .filter(t => typeof t?.id === 'string' && t.id)
-      .map(t => JSON.stringify({ id: t.id, content: fit(formatTask(t, now, colors), columns) }));
+      .map(t => JSON.stringify({ id: t.id, content: fitRow(formatTask(t, now, colors), columns) }));
   } catch {
     rows = [];
   }
   for (const r of rows) console.log(r);
 }
 
-/**
- * `explore [haiku 4.5 | high]: Researching docs (1m 02s | 12k 6%)`
- * No throughput: `tokenCount` is the agent's current context size, not its
- * output, and `tokenSamples` has no timestamps, so neither yields tok/s.
- */
+/** Payload-only row: no throughput or cost (the mod's `AgentRow` hook adds both). */
 export function formatTask(raw: SubagentTask, now: number, colors: boolean): string {
-  const c = colors ? { magenta, white, label: (s: string) => label(s), dim } : { magenta: id, white: id, label: id, dim: id };
-  // The payload's strings are written by the model (Agent tool description,
-  // agent names) and are drawn straight into the terminal: strip control and
-  // format characters so a crafted description cannot inject escape sequences.
-  const t = {
-    ...raw,
-    agentType: cleanText(raw.agentType), type: cleanText(raw.type), name: cleanText(raw.name),
-    model: cleanText(raw.model), effort: typeof raw.effort === 'number' && Number.isFinite(raw.effort) ? String(raw.effort) : cleanText(raw.effort),
-    label: cleanText(raw.label), description: cleanText(raw.description),
-  };
-  const type = t.agentType || t.type || 'agent';
-  const name = t.name && t.name !== type ? `${type} ${c.dim(`(${t.name})`)}` : type;
-  const bracket: string[] = [];
-  if (t.model) bracket.push(fmtModel(t.model));
-  if (t.effort) bracket.push(t.effort);
-  const m = bracket.length > 0 ? ` ${c.label(`[${bracket.join(' | ')}]`)}` : '';
-  const desc = (t.label || t.description || '').trim();
-  // Width-aware: a CJK description is twice as wide as its code-unit length.
-  const descShown = visualLength(desc) > 48 ? `${sliceVisible(desc, 45)}...` : desc;
-  const descPart = desc ? `${c.dim(':')} ${c.white(descShown)}` : '';
-
-  const stats: string[] = [];
-  const elapsedMs = typeof t.startTime === 'number' && t.startTime > 0 ? Math.max(0, now - t.startTime) : null;
-  if (elapsedMs !== null) stats.push(fmtElapsedMs(elapsedMs));
-  const tokens = typeof t.tokenCount === 'number' && t.tokenCount > 0 ? t.tokenCount : null;
-  if (tokens !== null) {
-    const window = typeof t.contextWindowSize === 'number' && t.contextWindowSize > 0 ? t.contextWindowSize : null;
-    const pct = window ? ` ${Math.round((tokens / window) * 100)}%` : '';
-    stats.push(`${fmtAgentTokens(tokens)}${pct}`);
-  }
-  const statsPart = stats.length > 0 ? ` ${c.label(`(${stats.join(' | ')})`)}` : '';
-  return `${c.magenta(name)}${m}${descPart}${statsPart}${colors ? RESET : ''}`;
-}
-
-function id(s: string): string { return s; }
-
-/** Trim to the panel's usable width in terminal cells (ANSI is zero-width,
- * CJK is double-width), keeping color sequences intact and closing them. */
-function fit(s: string, columns: number): string {
-  if (columns <= 0 || visualLength(s) <= columns) return s;
-  const cut = sliceVisible(s, Math.max(0, columns - 1));
-  return `${cut}…${/\x1b\[/.test(cut) ? RESET : ''}`;
+  return formatAgentRow(raw as AgentRowData, now, colors);
 }
 
 if (import.meta.main) void main();

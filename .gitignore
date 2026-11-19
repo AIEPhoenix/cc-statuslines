@@ -3,3 +3,6 @@ connectivity.json
 connectivity.lock
 ip-risk-cache.json
 config.local.json
+/state/
+/statusline.ts
+/tsconfig.json

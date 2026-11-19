@@ -120,7 +120,7 @@ const MAX_CACHE_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
 /** Delete cache entries for long-dead sessions. Throttled via a marker file
  * so the directory scan runs at most once a day across all hud invocations. */
-function pruneCacheDir(dir: string): void {
+export function pruneCacheDir(dir: string): void {
   try {
     const marker = path.join(dir, PRUNE_MARKER);
     const now = Date.now();

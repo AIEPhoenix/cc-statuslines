@@ -257,6 +257,8 @@ export interface RenderContext {
   autoCompactWindow?: number | null;
   /** CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (1–<100), or null when unset/ineffective. */
   autoCompactPct?: number | null;
+  /** The engine's own auto-compact trigger, from the HUD mod's snapshot; null without the mod. */
+  engineAutoCompact?: { threshold: number; enabled: boolean } | null;
   /** Cached connectivity result, or null when disabled/never checked. */
   connectivity?: ConnectivityInfo | null;
 }

@@ -31,10 +31,11 @@ export function renderIdentityLine(ctx: RenderContext): string {
     : `${label('Context', colors)} ${cvDisplay}`;
 
   if (compact) {
-    // "ac@360k" = observed auto-compact line; "ac≈500k" = configured trigger,
-    // not yet confirmed by a compaction in this session. "×2" = compactions so far.
+    // "ac@360k" = exact auto-compact line (the engine's, via the mod, or one
+    // observed in this session); "ac≈500k" = configured trigger, not yet
+    // confirmed. "×2" = compactions so far.
     const count = ctx.transcript.compactions?.count ?? 0;
-    const sep = compact.source === 'observed' ? '@' : '≈';
+    const sep = compact.source === 'configured' ? '≈' : '@';
     line += dim(` ac${sep}${fmtTokens(compact.tokens)}${count > 0 ? ` ×${count}` : ''}`);
   } else {
     const count = ctx.transcript.compactions?.count ?? 0;

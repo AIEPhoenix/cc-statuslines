@@ -39,86 +39,79 @@ agents, no todos and no `prompt_cache` yet shows four lines, not twelve.
 
 - [Claude Code](https://code.claude.com/docs/en/overview) CLI (≥2.1.150 for `refreshInterval`; the cache, spend and badge fields need ≥2.1.251, see the toggles table)
 - [Bun](https://bun.sh) runtime (`brew install oven-sh/bun/bun` or see https://bun.sh)
+- The mod is built and tested against Claude Code 2.1.327
 
 ## Installation
 
-### 1. Clone the repository
+The HUD is a Claude Code plugin with two halves:
+
+- **The status line** (`index.ts`), run by Bun through the `statusLine` setting.
+- **A mod** (`hooks/register.ts`), loaded inside Claude Code by the plugin. It
+  draws the agent-panel rows and hands the status line figures the statusLine
+  JSON does not carry: the engine's exact auto-compact trigger, active time,
+  request throughput and live subagent status, speed and cost. Without it the
+  status line still works and falls back to estimates from the transcript.
+
+### 1. Install the plugin
+
+```
+/plugin install cc-statuslines --marketplace AIEPhoenix/cc-statuslines
+```
+
+The mod starts working right away: agent-panel rows first.
+
+### 2. Point the status line at the plugin
+
+A plugin can neither set `statusLine` nor write Claude Code's settings files, so
+the mod ships a command that shows the exact entry to add:
+
+```
+/hud-setup
+```
+
+Paste its `statusLine` into `~/.claude/settings.json` (or ask Claude to apply
+it), and delete any leftover `subagentStatusLine` entry.
+
+The entry runs `~/.claude/hud/statusline.ts`, a small launcher the
+mod rewrites at each session start to point at the installed plugin, so plugin
+updates never break the status line, with Bun's absolute path from your `PATH`.
+`subagentStatusLine` is deprecated by Claude Code; the mod draws those rows now.
+
+### Your settings and caches
+
+Configuration and caches live in `${CLAUDE_CONFIG_DIR:-~/.claude}/hud/`, never in
+the plugin folder, so plugin updates do not touch them: `config.json`,
+`config.local.json`, `connectivity.json`, `ip-risk-cache.json`, `transcript-cache/`,
+the mod's per-session snapshots in `state/`, and the `statusline.ts` launcher.
+
+### Without the plugin (manual setup)
+
+Clone the repository and add `statusLine` to `~/.claude/settings.json` yourself:
 
 ```bash
 git clone https://github.com/AIEPhoenix/cc-statuslines.git ~/.claude/hud
+bun --env-file /dev/null ~/.claude/hud/index.ts < /dev/null   # prints "[hud] Initializing..."
 ```
-
-Or copy files manually to `~/.claude/hud/`.
-
-### 2. Test it works
-
-```bash
-bun --env-file /dev/null ~/.claude/hud/index.ts < /dev/null
-```
-
-With no input the HUD prints:
-```
-[hud] Initializing...
-```
-
-To see a real render, pipe in any status line JSON — for example the sample
-from the [status line docs](https://code.claude.com/docs/en/statusline).
-
-### 3. Configure Claude Code
-
-Add the `statusLine` config to `~/.claude/settings.json`:
 
 ```json
 {
   "statusLine": {
     "type": "command",
-    "command": "bun --env-file /dev/null ~/.claude/hud/index.ts",
-    "refreshInterval": 5
-  }
-}
-```
-
-Or if you have `CLAUDE_CONFIG_DIR` set:
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "bun --env-file /dev/null $CLAUDE_CONFIG_DIR/hud/index.ts",
+    "command": "/absolute/path/to/bun --env-file /dev/null ~/.claude/hud/index.ts",
     "refreshInterval": 5
   }
 }
 ```
 
 `refreshInterval` (Claude Code ≥2.1.150) re-runs the HUD every N seconds, so the session
-duration, agent timers and the prompt-cache countdown tick in real time instead of only
-updating on new messages.
+duration, agent timers and the prompt-cache countdown tick in real time.
 
-### 3b. (Optional) Per-subagent rows in the agent panel
+To load the mod from this clone too, add the folder as a marketplace and install
+from it: `claude plugin marketplace add ~/.claude/hud`, then
+`claude plugin install cc-statuslines@cc-statuslines`.
 
-Claude Code ≥2.1.205 can also ask a script to draw each running subagent's row
-in the agent panel (`subagentStatusLine`). The HUD ships an entry for it:
-
-```json
-{
-  "subagentStatusLine": {
-    "type": "command",
-    "command": "/absolute/path/to/bun --env-file /dev/null ~/.claude/hud/subagent-line.ts"
-  }
-}
-```
-
-It renders `oracle [fable 5 | high]: Code review (58s | 12k 6%)` per
-agent from the payload alone (type, model, effort since 2.1.213, `agentType`
-since 2.1.293, token count, context window), so it never reads a transcript and
-stays well inside the engine's 5 s budget. Use `bun`'s **absolute path**
-(`readlink -f "$(which bun)"`): the engine runs this command without inheriting
-your shell environment, so a bare `bun` may not resolve. Rows are plain text by default; set
-`display.subagentLineColors: true` to emit ANSI colors if your panel renders them.
-
-### 4. Restart Claude Code
-
-Quit and relaunch `claude` in your terminal. The HUD should appear below your input field.
+`subagent-line.ts`, the old `subagentStatusLine` entry, is kept for setups that
+cannot load the mod; Claude Code has deprecated that setting.
 
 ## Configuration
 
@@ -244,7 +237,7 @@ these files are resolved the same way by `index.ts` and `subagent-line.ts`.
 | `ipdataBaseUrl` | `https://api.ipdata.co` | ipdata endpoint (use `https://eu-api.ipdata.co` for the EU region) |
 | `showCache` | `true` | Prompt-cache line `Cache ● 1h · expires 42m · hit 93% · miss 2/14 (tools_changed +2 tools)` from stdin `prompt_cache` (CC ≥2.1.251; miss causes ≥2.1.260). `●` green = warm; amber when under 5 min from expiry; `○ cold · recache 45k` once expired (the tokens the next request will re-write); `○ not observed` when the API reported no caching. The engine re-runs the status line at `expires_at`, so the countdown flips to cold on time without a `refreshInterval`. Compact layout: `cache ●42m 93%` |
 | `showPermissionMode` | `true` | `⚑ bypass` / `⚑ auto` / `⚑ plan` / `⚑ accept` badge on the project line from stdin `permission_mode`; hidden for `default`. Unknown future modes are shown verbatim |
-| `subagentLineColors` | `false` | `subagent-line.ts` only: emit ANSI colors in agent-panel rows instead of plain text |
+| `subagentLineColors` | `false` | Emit ANSI colors in agent-panel rows (the mod and `subagent-line.ts`) instead of plain text |
 | `showTools` | `false` | Up to two running tools with their target, then the four most-used completed tools with counts |
 | `showAgents` | `false` | Up to five agents: running → fresh idle → completed/stopped → idle longer than 10 min (dimmed `· stale`); each with model, description, elapsed, tok/s, tool count, tokens and cost where the transcript has them. Workflow runs aggregate to one `wf:` line each |
 | `showTodos` | `false` | The in-progress task `▸ … (done/total)`, or `✓ All todos complete` |
@@ -329,7 +322,8 @@ Line N (Todos):      ▸ Implement feature (3/7)
 | **Prompt-cache health** | `Cache ● 1h · expires 42m · hit 93%` — TTL countdown, hit ratio and the last miss's cause, so a pause can be timed around the 1h cache and a cold cache explained (CC ≥2.1.251) |
 | **Spend cap** | `spend $314/$500 63% (monthly)` — gateway spend limit beside the 5h/7d windows (CC ≥2.1.251) |
 | **Mode badges** | `⚑ bypass` / `⚑ plan` on the project line, `⚡fast` in the model bracket |
-| **Subagent panel rows** | `subagent-line.ts` entry for `subagentStatusLine`: per-agent model/effort/elapsed/context size in the agent panel, from the payload alone |
+| **Subagent panel rows** | The mod's `AgentRow` hook: per-agent model/effort/elapsed/context size plus live output speed and the engine's own cost |
+| **Exact figures from the mod** | Engine auto-compact trigger (`ac@` without estimating), active time, request throughput and live subagent status, read from a per-session snapshot; transcript estimates when the mod is absent |
 | **Lines changed** | `+156/-23` — session-wide lines added/removed |
 | **Effort level** | `[Fable 5 \| high]` — reasoning effort from `effort.level` |
 | **PR awareness** | `PR #128✓` — current branch's GitHub PR with review state, clickable (OSC 8) |
@@ -354,8 +348,13 @@ Line N (Todos):      ▸ Implement feature (3/7)
 ```
 Claude Code
     ↓ (JSON via stdin)
+hooks/register.ts           ← The mod (in-process): AgentRow rows, snapshot writer, launcher, /hud-setup
+    ├── mod/snapshot.ts     ← Snapshot format shared with index.ts
+    └── render/agent-row.ts ← Agent-panel row format (shared with subagent-line.ts)
+
 index.ts                    ← Entry point (statusLine)
-subagent-line.ts            ← Second entry point (subagentStatusLine): agent-panel rows
+subagent-line.ts            ← Legacy entry point (deprecated subagentStatusLine)
+    ├── hud-state.ts        ← Read the mod's snapshot and overlay its exact figures
     ├── stdin.ts            ← Parse stdin (model, context, usage, spend, permission mode)
     ├── transcript.ts       ← Parse transcript JSONL (tools, agents, workflows, todos, compactions)
     ├── speed-metrics.ts    ← Transcript-derived token speed and active duration
@@ -366,6 +365,7 @@ subagent-line.ts            ← Second entry point (subagentStatusLine): agent-p
     ├── config.ts           ← config.json + config.local.json overlay, validation, defaults
     ├── utils/
     │   ├── terminal.ts     ← Adaptive bar width
+    │   ├── width.ts        ← Terminal cell width of ANSI/CJK text (pure; the mod uses it)
     │   └── text.ts         ← stripControl: terminal-safe external strings
     └── render/
         ├── index.ts        ← Layout orchestration, width-aware wrapping/truncation
@@ -390,6 +390,9 @@ subagent-line.ts            ← Second entry point (subagentStatusLine): agent-p
   `config.json` only keeps the elements it names: the `cache` line added in
   v8.4 will not appear until you add `"cache"` to your list (default position:
   after `tokens`).
+- **The mod's snapshot is ignored after 60 s without an update**, so a
+  session whose mod stopped (plugin disabled, Claude Code exited) falls back to
+  transcript estimates instead of showing frozen numbers.
 - **`subagentStatusLine` runs with an empty environment.** Claude Code calls it
   with `extendEnv: false`, so write `bun`'s absolute path in the command, and
   don't rely on `CLAUDE_CONFIG_DIR` being set there — the entry falls back to

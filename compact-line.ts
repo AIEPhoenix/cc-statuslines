@@ -94,9 +94,10 @@ export function readAutoCompactPct(): number | null {
 
 export interface CompactLine {
   tokens: number;
-  /** 'observed' = learned from a trigger:"auto" compact_boundary in this
+  /** 'engine' = Claude Code's own trigger, reported by the HUD mod;
+   * 'observed' = learned from a trigger:"auto" compact_boundary in this
    * session; 'configured' = the trigger set in env/settings. */
-  source: 'observed' | 'configured';
+  source: 'engine' | 'observed' | 'configured';
 }
 
 /**
@@ -108,6 +109,14 @@ export function resolveCompactLine(ctx: RenderContext): CompactLine | null {
   const size = ctx.stdin.context_window?.context_window_size ?? 0;
   const inWindow = (t: number | undefined): t is number =>
     typeof t === 'number' && t > 0 && (size <= 0 || t <= size);
+
+  // The mod reports the engine's own trigger: exact, so it beats every estimate.
+  // Auto-compact turned off means there is no line to draw.
+  // A threshold outside the window is stale (a model switch before the next
+  // measure): fall through to the estimates until it is refreshed.
+  const engine = ctx.engineAutoCompact;
+  if (engine && !engine.enabled) return null;
+  if (engine && inWindow(engine.threshold)) return { tokens: engine.threshold, source: 'engine' };
 
   // A mid-session model switch can shrink the window below a previously
   // observed line; such stale observations are dropped rather than clamped.
