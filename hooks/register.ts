@@ -20,7 +20,6 @@ import {
   type SnapshotAgent,
 } from '../mod/snapshot.ts'
 
-
 const LAUNCHER = 'statusline.ts'
 const RATE_WINDOW_MS = 120_000
 const SLOW_TICK_MS = 30_000
@@ -272,7 +271,7 @@ export const register: Register = on => {
       `current statusLine: ${current === undefined ? '(none)' : JSON.stringify(current)}`,
       `new statusLine:     ${JSON.stringify(wanted)}`,
     ]
-    if (hasLegacySubagentLine) lines.push('subagentStatusLine: will be removed (this plugin draws the agent rows now)')
+    if (hasLegacySubagentLine) lines.push('subagentStatusLine: deprecated by Claude Code; this plugin draws the agent rows now')
     const cur = (current ?? {}) as Record<string, unknown>
     const isCurrent = cur.type === wanted.type && cur.command === wanted.command && cur.refreshInterval === wanted.refreshInterval
     if (!hasLauncher) {
